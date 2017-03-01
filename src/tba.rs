@@ -18,7 +18,6 @@ pub fn request(url_ext: &str, date: &str) -> Response {
     if date.len() > 0 {
         let time_header = format!("If-Modified-Since: {}", date);
         list.append(&time_header).unwrap();
-        println!("{}, {}", url_ext, time_header);
     }
     easy.http_headers(list).unwrap();
     easy.url(&request_url).unwrap();
@@ -39,9 +38,6 @@ pub fn request(url_ext: &str, date: &str) -> Response {
         transfer.perform().unwrap();
     }
     let code = easy.response_code().unwrap();
-    if code == 200 {
-        println!("Updating {}", url_ext);
-    }
     return Response {
         code: code,
         data: data,

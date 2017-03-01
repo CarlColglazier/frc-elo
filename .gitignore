@@ -4,3 +4,4 @@ tba_data/
 target/
 *.db
 tba_history.csv
+*.sql

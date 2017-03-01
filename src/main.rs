@@ -6,6 +6,7 @@ extern crate serde_json;
 #[macro_use] extern crate diesel;
 #[macro_use] extern crate diesel_codegen;
 extern crate csv;
+//extern crate pbr;
 
 mod tba;
 mod schema;
@@ -15,16 +16,20 @@ use diesel::sqlite::SqliteConnection;
 use dotenv::dotenv;
 use diesel::prelude::*;
 use models::*;
-use std::{thread, str, env, time};
+use schema::*;
+use std::{thread, str, env};
 use std::fs::OpenOptions;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
+use std::clone::Clone;
+//use pbr::ProgressBar;
 
 const CURRENT_YEAR: i32 = 2017;
 
+#[derive(Clone)]
 struct RequestData {
-    events: Vec<models::Event>,
+    events: Vec<models::EventJSON>,
     matches: Vec<models::GameMatch>,
 }
 
@@ -76,6 +81,7 @@ fn setup() {
             events: Vec::new(),
             matches: Vec::new(),
         }));
+    println!("Syncing data");
     for i in 2002..CURRENT_YEAR {
         let request_data = request_data.clone();
         let history = history.clone();
@@ -107,7 +113,7 @@ fn setup() {
             if data.len() > 0 {
                 let data_str = str::from_utf8(&data)
                     .expect("Could not load data string");
-                let mut events: Vec<models::Event> = serde_json::from_str(&data_str)
+                let mut events: Vec<models::EventJSON> = serde_json::from_str(&data_str)
                     .expect("Could not parse events JSON");
                 info.events.append(&mut events);
                 for event in &info.events {
@@ -133,11 +139,14 @@ fn setup() {
                     }
                     let data_str = str::from_utf8(&data)
                         .expect("Could not load match data string");
-                    let mut matches: Vec<models::GameMatch> = match serde_json::from_str(&data_str) {
+                    let mut game_matches: Vec<models::GameMatch> = match serde_json::from_str(&data_str) {
                         Ok(m) => m,
-                        Err(_) => continue,
+                        Err(e) => {
+                            println!("Error: {}", e.description());
+                            continue;
+                        },
                     };
-                    info.matches.append(&mut matches);
+                    info.matches.append(&mut game_matches);
                 }
                 let mut request_data = request_data.lock()
                     .expect("Could not lock request data");
@@ -149,28 +158,24 @@ fn setup() {
     for child in threads {
         let _ = child.join();
     }
-    let conn = db_connect();
     let result = request_data.lock().unwrap();
-    for event in &result.events {
-        match create_event(&conn, &event) {
-            Ok(_) => {},
-            Err(e) => {
-                println!("Error: {}", e.description());
-                break;
-            },
-        };
-    }
-    for m in &result.matches {
-        match create_match(&conn, &m) {
-            Ok(_) => {},
-            Err(e) => {
-                println!("Error: {}", e.description());
-                thread::sleep(time::Duration::from_millis(50));
-            },
-        };
-    }
+    println!("Found {} new events and {} new matches", result.events.len(), result.matches.len());
+    println!("Updating database");
+    let conn = db_connect();
+    let new_events: Vec<NewEvent> = result.events.iter().map(|x| prepare_event(x)).collect();
+    diesel::insert_or_replace(&new_events).into(events::table).execute(&conn)
+        .expect("Could not insert events");
+    let new_matches: Vec<NewMatch> = result.matches.iter().filter_map(|x| prepare_match(x)).collect();
+    diesel::insert_or_replace(&new_matches).into(matches::table).execute(&conn)
+        .expect("Could not insert mathes");
     let history = history.lock().unwrap();
     write_history(&history);
+    println!("Calculating Elo rankings");
+
+    let events = events::table.load::<Event>(&conn).expect("Could not query events");
+    let matches = Matche::belonging_to(&events).load::<Matche>(&conn)
+        .expect("Could not query matches");
+    println!("{} matches found.", matches.len());
 }
 
 
