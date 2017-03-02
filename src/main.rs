@@ -11,12 +11,13 @@ extern crate csv;
 mod tba;
 mod schema;
 mod models;
+mod elo;
 
 use diesel::sqlite::SqliteConnection;
 use dotenv::dotenv;
 use diesel::prelude::*;
 use models::*;
-use schema::*;
+use elo::Teams;
 use std::{thread, str, env};
 use std::fs::OpenOptions;
 use std::error::Error;
@@ -24,8 +25,12 @@ use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::clone::Clone;
 //use pbr::ProgressBar;
+use schema::matches::dsl::*;
+use schema::events::dsl::*;
+use std::cmp::Ordering;
 
-const CURRENT_YEAR: i32 = 2017;
+const FIRST_YEAR: i32 = 2002;
+const CURRENT_YEAR: i32 = 2018;
 
 #[derive(Clone)]
 struct RequestData {
@@ -66,7 +71,6 @@ fn write_history(map: &HashMap<String, String>) {
 
 fn db_connect() -> SqliteConnection {
     dotenv().ok();
-
     let database_url = env::var("DATABASE_URL").
         expect("DATABASE_URL must be set");
     SqliteConnection::establish(&database_url)
@@ -81,7 +85,7 @@ fn setup() {
             events: Vec::new(),
             matches: Vec::new(),
         }));
-    println!("Syncing data");
+    //println!("Syncing data");
     for i in 2002..CURRENT_YEAR {
         let request_data = request_data.clone();
         let history = history.clone();
@@ -113,9 +117,9 @@ fn setup() {
             if data.len() > 0 {
                 let data_str = str::from_utf8(&data)
                     .expect("Could not load data string");
-                let mut events: Vec<models::EventJSON> = serde_json::from_str(&data_str)
+                let mut event_list: Vec<models::EventJSON> = serde_json::from_str(&data_str)
                     .expect("Could not parse events JSON");
-                info.events.append(&mut events);
+                info.events.append(&mut event_list);
                 for event in &info.events {
                     let url = format!("event/{}/matches", event.key);
                     let mut last_time = String::new();
@@ -159,27 +163,86 @@ fn setup() {
         let _ = child.join();
     }
     let result = request_data.lock().unwrap();
-    println!("Found {} new events and {} new matches", result.events.len(), result.matches.len());
-    println!("Updating database");
+    //println!("Found {} new events and {} new matches", result.events.len(), result.matches.len());
+    //println!("Updating database");
     let conn = db_connect();
     let new_events: Vec<NewEvent> = result.events.iter().map(|x| prepare_event(x)).collect();
-    diesel::insert_or_replace(&new_events).into(events::table).execute(&conn)
+    diesel::insert_or_replace(&new_events).into(events).execute(&conn)
         .expect("Could not insert events");
     let new_matches: Vec<NewMatch> = result.matches.iter().filter_map(|x| prepare_match(x)).collect();
-    diesel::insert_or_replace(&new_matches).into(matches::table).execute(&conn)
+    diesel::insert_or_replace(&new_matches).into(matches).execute(&conn)
         .expect("Could not insert mathes");
     let history = history.lock().unwrap();
     write_history(&history);
-    println!("Calculating Elo rankings");
-
-    let events = events::table.load::<Event>(&conn).expect("Could not query events");
-    let matches = Matche::belonging_to(&events).load::<Matche>(&conn)
-        .expect("Could not query matches");
-    println!("{} matches found.", matches.len());
+    //println!("Calculating Elo rankings");
+    let mut team_list = Teams::new();
+    let event_list = events
+        .filter(official.eq(1))
+        .order(start_date)
+        .order(event_type)
+        .order(schema::events::dsl::id)
+        .load::<Event>(&conn).expect("Could not query events");
+    let event_match_list = Matche::belonging_to(&event_list)
+        .filter(red_score.gt(-1))
+        .filter(blue_score.gt(-1))
+        .order(match_number)
+        .load::<Matche>(&conn)
+        .expect("Could not query matches")
+        .grouped_by(&event_list);
+    println!("Actual,Predicted");
+    let mut current_year = FIRST_YEAR;
+    for mut event in event_match_list {
+        if event.len() < 1 {
+            continue;
+        }
+        if !event.first().unwrap().id.contains(&format!("{}", current_year)) {
+            team_list.new_year();
+            current_year += 1;
+        }
+        event.sort_by(|a, b| {
+            let a_level = match a.comp_level.as_ref() {
+                "qm" => 0,
+                "qf" => 1,
+                "sf" => 2,
+                "f" => 3,
+                _ => 100,
+            };
+            let b_level = match b.comp_level.as_ref() {
+                "qm" => 0,
+                "qf" => 1,
+                "sf" => 2,
+                "f" => 3,
+                _ => 100,
+            };
+            if a_level > b_level {
+                return Ordering::Greater
+            } else if a_level < b_level {
+                return Ordering::Less;
+            }
+            if a.match_number > b.match_number {
+                return Ordering::Greater;
+            } else if a.match_number < b.match_number {
+                return Ordering::Less;
+            }
+            return Ordering::Equal;
+        });
+        for m in event {
+            team_list.process_match(&m);
+        }
+    }
+    let mut teams = Vec::new();
+    for (key, val) in team_list.table {
+        teams.push((key, val));
+    }
+    teams.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
+    let mut i = 1;
+    for (key, val) in teams {
+        println!("{}. {}    {}", i, key, val);
+        i += 1;
+    }
 }
 
 
 fn main() {
-    //fs::create_dir_all(tba::TBA_DATA_DIR).unwrap();
     setup();
 }

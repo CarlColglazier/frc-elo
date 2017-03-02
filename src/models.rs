@@ -64,7 +64,7 @@ pub struct GameMatch {
     pub alliances: Alliances,
 }
 
-#[derive(Queryable, Identifiable, Associations)]
+#[derive(Debug, Queryable, Identifiable, Associations)]
 #[belongs_to(Event)]
 pub struct Matche {
     pub id: String,
@@ -99,6 +99,8 @@ pub struct NewMatch<'a> {
     pub blue2: &'a str,
     pub blue3: Option<&'a str>,
 }
+
+
 
 pub fn prepare_match(game_match: &GameMatch) -> Option<NewMatch> {
     Some(NewMatch {

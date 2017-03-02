@@ -5,3 +5,5 @@ target/
 *.db
 tba_history.csv
 *.sql
+*.txt
+.Rhistory
