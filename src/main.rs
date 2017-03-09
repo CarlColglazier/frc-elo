@@ -6,7 +6,8 @@ extern crate serde_json;
 #[macro_use] extern crate diesel;
 #[macro_use] extern crate diesel_codegen;
 extern crate csv;
-//extern crate pbr;
+extern crate pbr;
+#[macro_use] extern crate clap;
 
 mod tba;
 mod schema;
@@ -24,18 +25,30 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::clone::Clone;
-//use pbr::ProgressBar;
+use pbr::ProgressBar;
 use schema::matches::dsl::*;
 use schema::events::dsl::*;
 use std::cmp::Ordering;
+use clap::App;
 
 const FIRST_YEAR: i32 = 2002;
 const CURRENT_YEAR: i32 = 2018;
+
+const VERSION: &'static str = "0.0.0";
 
 #[derive(Clone)]
 struct RequestData {
     events: Vec<models::EventJSON>,
     matches: Vec<models::GameMatch>,
+}
+
+impl RequestData {
+    pub fn new() -> RequestData {
+        RequestData {
+            events: Vec::new(),
+            matches: Vec::new(),
+        }
+    }
 }
 
 #[derive(RustcDecodable)]
@@ -80,22 +93,17 @@ fn db_connect() -> SqliteConnection {
 fn setup() {
     let mut threads = Vec::new();
     let history = Arc::new(Mutex::new(open_history()));
-    let request_data: Arc<Mutex<RequestData>> =
-        Arc::new(Mutex::new(RequestData {
-            events: Vec::new(),
-            matches: Vec::new(),
-        }));
+    let request_data: Arc<Mutex<RequestData>> = Arc::new(Mutex::new(RequestData::new()));
     //println!("Syncing data");
+    
     for i in 2002..CURRENT_YEAR {
         let request_data = request_data.clone();
         let history = history.clone();
         threads.push(thread::spawn(move || {
-            let mut info = RequestData {
-                events: Vec::new(),
-                matches: Vec::new(),
-            };
+            let mut info = RequestData::new();
             let url = format!("events/{}", i);
             let mut last_time = String::new();
+            
             {
                 let history = history.lock()
                     .expect("Could not lock history for getting event time");
@@ -105,22 +113,23 @@ fn setup() {
                 };
             }
             let response = tba::request(&url, &last_time);
-            if response.code != 200 {
+            if response.code != 200 && i < CURRENT_YEAR - 1 {
                 return;
             }
-            let data = response.data;
             {
                 let mut history = history.lock()
                     .expect("Could not lock history for setting event time");
                 history.insert(url, response.last_modified.trim().to_string());
             }
-            if data.len() > 0 {
-                let data_str = str::from_utf8(&data)
+            if response.data.len() > 0 {
+                let data_str = str::from_utf8(&response.data)
                     .expect("Could not load data string");
                 let mut event_list: Vec<models::EventJSON> = serde_json::from_str(&data_str)
                     .expect("Could not parse events JSON");
                 info.events.append(&mut event_list);
+                let mut bar = ProgressBar::new(info.events.len() as u64);
                 for event in &info.events {
+                    bar.inc();
                     let url = format!("event/{}/matches", event.key);
                     let mut last_time = String::new();
                     {
@@ -135,21 +144,21 @@ fn setup() {
                     if response.code != 200 {
                         continue;
                     }
-                    let data = response.data;
                     {
                         let mut history = history.lock()
                             .expect("Could not get history for match writing");
                         history.insert(url, response.last_modified.trim().to_string());
                     }
-                    let data_str = str::from_utf8(&data)
+                    let data_str = str::from_utf8(&response.data)
                         .expect("Could not load match data string");
-                    let mut game_matches: Vec<models::GameMatch> = match serde_json::from_str(&data_str) {
-                        Ok(m) => m,
-                        Err(e) => {
-                            println!("Error: {}", e.description());
-                            continue;
-                        },
-                    };
+                    let mut game_matches: Vec<models::GameMatch> =
+                        match serde_json::from_str(&data_str) {
+                            Ok(m) => m,
+                            Err(e) => {
+                                println!("Error: {}", e.description());
+                                continue;
+                            },
+                        };
                     info.matches.append(&mut game_matches);
                 }
                 let mut request_data = request_data.lock()
@@ -174,8 +183,12 @@ fn setup() {
         .expect("Could not insert mathes");
     let history = history.lock().unwrap();
     write_history(&history);
+}
+
+fn calculate (k: f64, carry_over: f64) {
     //println!("Calculating Elo rankings");
-    let mut team_list = Teams::new();
+    let mut team_list = Teams::new(k, carry_over);
+    let conn = db_connect();
     let event_list = events
         .filter(official.eq(1))
         .order(start_date)
@@ -189,7 +202,7 @@ fn setup() {
         .load::<Matche>(&conn)
         .expect("Could not query matches")
         .grouped_by(&event_list);
-    println!("Actual,Predicted");
+    //println!("Actual,Predicted");
     let mut current_year = FIRST_YEAR;
     for mut event in event_match_list {
         if event.len() < 1 {
@@ -230,6 +243,8 @@ fn setup() {
             team_list.process_match(&m);
         }
     }
+    let brier = team_list.brier / team_list.total as f64;
+    println!("Brier: {}", brier);
     let mut teams = Vec::new();
     for (key, val) in team_list.table {
         teams.push((key, val));
@@ -244,5 +259,12 @@ fn setup() {
 
 
 fn main() {
-    setup();
+    let yaml = load_yaml!("cli.yaml");
+    let cli_matches = App::from_yaml(yaml).get_matches();
+    if let Some(m) = cli_matches.subcommand_matches("sync") {
+        setup();
+    }
+    if let Some(m) = cli_matches.subcommand_matches("rank") {
+        calculate(12f64, 0.9f64);
+    }
 }

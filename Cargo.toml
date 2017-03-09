@@ -14,3 +14,4 @@ serde_derive = "0.9.8"
 serde_json = "0.9.8"
 csv = "0.15.0"
 pbr = "1.0.0-alpha.2"
+clap = { version = "2.20.5", features = ["yaml"] }

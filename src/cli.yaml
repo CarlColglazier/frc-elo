@@ -1,0 +1,9 @@
+name: frc-elo
+version: "0.0.0"
+author: Carl Colglazier
+about: A predictive FRC ranking system
+subcommands:
+    - sync:
+        about: Sync match and event data
+    - rank:
+        about: Perform rankings
