@@ -13,12 +13,14 @@ mod tba;
 mod schema;
 mod models;
 mod elo;
+mod glicko;
 
 use diesel::sqlite::SqliteConnection;
 use dotenv::dotenv;
 use diesel::prelude::*;
 use models::*;
 use elo::Teams;
+use glicko::GlickoTeams;
 use std::{thread, str, env};
 use std::fs::OpenOptions;
 use std::error::Error;
@@ -33,8 +35,6 @@ use clap::App;
 
 const FIRST_YEAR: i32 = 2002;
 const CURRENT_YEAR: i32 = 2018;
-
-const VERSION: &'static str = "0.0.0";
 
 #[derive(Clone)]
 struct RequestData {
@@ -185,15 +185,13 @@ fn setup() {
     write_history(&history);
 }
 
-fn calculate (k: f64, carry_over: f64) {
+fn get_matches() -> (Vec<Event>, Vec<Vec<Matche>>) {
     //println!("Calculating Elo rankings");
-    let mut team_list = Teams::new(k, carry_over);
     let conn = db_connect();
     let event_list = events
         .filter(official.eq(1))
         .order(start_date)
-        .order(event_type)
-        .order(schema::events::dsl::id)
+    //.order(schema::events::dsl::id)
         .load::<Event>(&conn).expect("Could not query events");
     let event_match_list = Matche::belonging_to(&event_list)
         .filter(red_score.gt(-1))
@@ -202,16 +200,8 @@ fn calculate (k: f64, carry_over: f64) {
         .load::<Matche>(&conn)
         .expect("Could not query matches")
         .grouped_by(&event_list);
-    //println!("Actual,Predicted");
-    let mut current_year = FIRST_YEAR;
+    let mut final_list: Vec<Vec<Matche>> = Vec::new();
     for mut event in event_match_list {
-        if event.len() < 1 {
-            continue;
-        }
-        if !event.first().unwrap().id.contains(&format!("{}", current_year)) {
-            team_list.new_year();
-            current_year += 1;
-        }
         event.sort_by(|a, b| {
             let a_level = match a.comp_level.as_ref() {
                 "qm" => 0,
@@ -239,6 +229,24 @@ fn calculate (k: f64, carry_over: f64) {
             }
             return Ordering::Equal;
         });
+        final_list.push(event);
+    }
+    return (event_list, final_list);
+}
+//println!("Actual,Predicted");
+
+fn elo (k: f64, carry_over: f64) {
+    let mut team_list = Teams::new(k, carry_over);
+    let mut current_year = FIRST_YEAR;
+    let (_, event_match_list) = get_matches();
+    for event in event_match_list {
+        if event.len() < 1 {
+            continue;
+        }
+        if !event.first().unwrap().id.contains(&format!("{}", current_year)) {
+            team_list.new_year();
+            current_year += 1;
+        }
         for m in event {
             team_list.process_match(&m);
         }
@@ -257,14 +265,145 @@ fn calculate (k: f64, carry_over: f64) {
     }
 }
 
+fn glicko() -> GlickoTeams {
+    let mut team_list = GlickoTeams::new();
+    let mut current_year = FIRST_YEAR;
+    let (event_list, match_list) = get_matches();
+    for event in &match_list {
+        if event.len() < 1 {
+            continue;
+        }
+        let ref current_event_id = event.first().unwrap().event_id;
+        //println!("{}", current_event_id);
+        if !current_event_id.contains(&format!("{}", current_year)) {
+            /*
+            if current_year == 2016 {
+            break;
+        }*/
+            team_list.new_year();
+            current_year += 1;
+        }
+        let mut week_iter = event_list.iter().filter(|x| x.id.contains(current_event_id));
+        let current_week = week_iter.next().expect("Week event")
+            .week;
+        team_list.start_event(current_week);
+        for m in event {
+            team_list.process_match(&m);
+            if m.id.ends_with("qf1m1") || m.match_number % 25 == 0 {
+                team_list.finish_event();
+            }
+        }
+        team_list.finish_event();
+        
+    }
+    return team_list;
+}
 
 fn main() {
+    dotenv().ok();
     let yaml = load_yaml!("cli.yaml");
     let cli_matches = App::from_yaml(yaml).get_matches();
-    if let Some(m) = cli_matches.subcommand_matches("sync") {
+    if let Some(_) = cli_matches.subcommand_matches("sync") {
         setup();
     }
-    if let Some(m) = cli_matches.subcommand_matches("rank") {
-        calculate(12f64, 0.9f64);
+    if let Some(_) = cli_matches.subcommand_matches("elo") {
+        elo(16f64, 0.8f64);
+    }
+    if let Some(m) = cli_matches.subcommand_matches("glicko") {
+        let team_list = glicko();
+        let mut teams = Vec::new();
+        for (key, val) in &team_list.table {
+            if val.glicko.deviation < 140f64 || m.is_present("all") {
+                teams.push((key.clone(), val.glicko.clone()));
+            }
+        }
+        let brier = team_list.brier / team_list.total as f64;
+        println!("Brier: {}", brier);
+        teams.sort_by(|x, y| y.1.rating.partial_cmp(&x.1.rating).unwrap());
+        let mut i = 1;
+        for (key, val) in teams {
+            println!("{}. {}  {}  ({},{}) [{}]", i, key,
+                     val.rating as i32,
+                     (val.rating - 1.96f64 * val.deviation) as i32,
+                     (val.rating + 1.96f64 * val.deviation) as i32,
+                     val.deviation as i32);
+            i += 1;
+        }
+
+    }
+    if let Some(m) = cli_matches.subcommand_matches("predict") {
+        let red = m.value_of("red").unwrap().split(" ");
+        let red_list: Vec<String> = red.map(|x| x.to_owned()).collect();
+        let blue = m.value_of("blue").unwrap().split(" ");
+        let blue_list: Vec<String> = blue.map(|x| x.to_owned()).collect();
+        let mut team_list = glicko();
+        println!("{:?} {:?}", red_list, blue_list);
+        let red_glicko = team_list.average(&red_list);
+        let blue_glicko = team_list.average(&blue_list);
+        println!("{:?}", red_glicko.predict(&blue_glicko));
+    }
+    if let Some(m) = cli_matches.subcommand_matches("prob") {
+        let event_key = m.value_of("event").unwrap();
+        let mut team_list = glicko();
+        let conn = db_connect();
+        let match_list = matches
+            .filter(event_id.eq(event_key))
+            .filter(red_score.eq(-1))
+            .filter(blue_score.eq(-1))
+            .order(match_number)
+            .load::<Matche>(&conn)
+            .expect("matches");
+        for m in &match_list {
+            let red_glicko = team_list.average(&m.get_red());
+            let blue_glicko = team_list.average(&m.get_blue());
+            let prediction = red_glicko.predict(&blue_glicko);
+            let red_teams = m.get_red().join(" ");
+            let blue_teams = m.get_blue().join(" ");
+            println!("{}{:<2} ({:.5}) {:<24} vs. {:<24} ({:.5})",
+                     m.comp_level, m.match_number, prediction, red_teams,
+                     blue_teams, 1f64 - prediction);
+        }
+    }
+    if let Some(m) = cli_matches.subcommand_matches("estimate") {
+        let event_key = m.value_of("event").unwrap();
+        let mut team_list = glicko();
+        println!("{:?}", event_key);
+        let conn = db_connect();
+        let match_list = matches
+            .filter(event_id.eq(event_key))
+            .filter(comp_level.eq("qm"))
+            .load::<Matche>(&conn)
+            .expect("matches");
+        let mut rankings: HashMap<String, f64> = HashMap::new();
+        for m in &match_list {
+            let completed = m.blue_score != -1 && m.red_score != -1;
+            let red_glicko = team_list.average(&m.get_red());
+            let blue_glicko = team_list.average(&m.get_blue());
+            let prediction = red_glicko.predict(&blue_glicko);
+            for team in &m.get_red() {
+                let mut ranking = rankings.entry(team.to_owned()).or_insert(0f64);
+                if completed {
+                    *ranking += 2f64 * m.actual_r();
+                } else {
+                    *ranking += 2f64 * prediction;
+                }
+            }
+            for team in &m.get_blue() {
+                let mut ranking = rankings.entry(team.to_owned()).or_insert(0f64);
+                if completed {
+                    *ranking += 2f64 * m.actual_b();
+                } else {
+                    *ranking += 2f64 * (1f64 - prediction);
+                }
+            }
+        }
+        let mut teams = Vec::new();
+        for (team, val) in rankings {
+            teams.push((team, val));
+        }
+        teams.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
+        for (key, val) in teams {
+            println!("{} {}", key, val);
+        }
     }
 }

@@ -1,6 +1,6 @@
 use curl::easy::{Easy, List};
 use std::str;
-
+use std::env;
 pub struct Response {
     pub code: u32,
     pub data: Vec<u8>,
@@ -8,13 +8,13 @@ pub struct Response {
 }
 
 pub fn request(url_ext: &str, date: &str) -> Response {
-    let request_url = format!("https://www.thebluealliance.com/api/v2/{}", url_ext);
-    //let last_time = last_checked(url_ext);
-    //let time = DateTime::<UTC>::from_utc(NaiveDateTime::from_timestamp(last_time as i64, 0), UTC);
+    let request_url = format!("https://www.thebluealliance.com/api/v3/{}", url_ext);
     let mut easy = Easy::new();
     let mut list = List::new();
     let mut data = Vec::new();
     list.append("X-TBA-App-Id: Carl Colglazier:FRC ELO:0.0.0").unwrap();
+    list.append(&format!("X-TBA-Auth-Key: {}", env::var("TBA_KEY")
+                        .expect("Auth Key"))).expect("Add auth key");
     if date.len() > 0 {
         let time_header = format!("If-Modified-Since: {}", date);
         list.append(&time_header).unwrap();

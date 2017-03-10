@@ -5,8 +5,9 @@ pub struct EventJSON {
     pub key: String,
     pub name: String,
     pub event_type: usize,
-    pub official: Option<bool>,
+    //pub official: Option<bool>,
     pub start_date: String,
+    pub week: Option<i32>,
 }
 
 #[derive(Queryable, Identifiable, Associations)]
@@ -17,6 +18,7 @@ pub struct Event {
     pub event_type: i32,
     pub official: i32,
     pub start_date: String,
+    pub week: i32,
 }
 
 #[derive(Insertable)]
@@ -27,6 +29,7 @@ pub struct NewEvent<'a> {
     pub event_type: i32,
     pub official: i32,
     pub start_date: &'a str,
+    pub week: i32,
 }
 
 pub fn prepare_event(event: &EventJSON) -> NewEvent {
@@ -34,10 +37,14 @@ pub fn prepare_event(event: &EventJSON) -> NewEvent {
         id: &event.key,
         name: &event.name,
         event_type: event.event_type as i32,
-        official: event.official.map(|s| match s {
-            true => 1,
-            false => 0,
-        }).unwrap_or(0),
+        official: match event.event_type {
+            99 => 0,
+            _ => 1,
+        },
+        week: match event.week {
+            Some(w) => w,
+            None => 7,
+        },
         start_date: &event.start_date,
     }
 }
@@ -51,7 +58,7 @@ pub struct Alliances {
 #[derive(Deserialize, Queryable, Debug, Clone)]
 pub struct Alliance {
     pub score: i32,
-    pub teams: Vec<String>
+    pub team_keys: Vec<String>
 }
 
 #[derive(Deserialize, Queryable, Debug, Clone)]
@@ -80,6 +87,42 @@ pub struct Matche {
     pub blue1: String,
     pub blue2: String,
     pub blue3: Option<String>,
+}
+
+impl Matche {
+    pub fn get_red(&self) -> Vec<String> {
+        let mut teams = vec!(self.red1.clone(), self.red2.clone());
+        if let Some(ref red3) = self.red3 {
+            teams.push(red3.to_owned());
+        }
+        return teams;
+    }
+
+    pub fn get_blue(&self) -> Vec<String> {
+        let mut teams = vec!(self.blue1.clone(), self.blue2.clone());
+        if let Some(ref blue3) = self.blue3 {
+            teams.push(blue3.to_owned());
+        }
+        return teams;
+    }
+
+    pub fn actual_r(&self) -> f64 {
+        if self.red_score > self.blue_score {
+            return 1.0f64;
+        } else if self.red_score < self.blue_score {
+            return 0.0f64;
+        }
+        return 0.5f64;
+    }
+
+    pub fn actual_b(&self) -> f64 {
+        if self.red_score > self.blue_score {
+            return 0.0f64;
+        } else if self.red_score < self.blue_score {
+            return 1.0f64;
+        }
+        return 0.5f64;
+    }
 }
 
 #[derive(Insertable)]
@@ -111,27 +154,27 @@ pub fn prepare_match(game_match: &GameMatch) -> Option<NewMatch> {
         event_id: &game_match.event_key,
         red_score: game_match.alliances.red.score,
         blue_score: game_match.alliances.blue.score,
-        red1: match game_match.alliances.red.teams.get(0) {
+        red1: match game_match.alliances.red.team_keys.get(0) {
             Some(i) => i,
             None => return None,
         },
-        red2: match game_match.alliances.red.teams.get(1) {
+        red2: match game_match.alliances.red.team_keys.get(1) {
             Some(i) => i,
             None => return None,
         },
-        red3: match game_match.alliances.red.teams.get(2) {
+        red3: match game_match.alliances.red.team_keys.get(2) {
             Some(i) => Some(i),
             None => None,
         },
-        blue1: match game_match.alliances.blue.teams.get(2) {
+        blue1: match game_match.alliances.blue.team_keys.get(0) {
             Some(i) => i,
             None => return None,
         },
-        blue2: match game_match.alliances.blue.teams.get(1) {
+        blue2: match game_match.alliances.blue.team_keys.get(1) {
             Some(i) => i,
             None => return None,
         },
-        blue3: match game_match.alliances.blue.teams.get(2) {
+        blue3: match game_match.alliances.blue.team_keys.get(2) {
             Some(i) => Some(i),
             None => None,
         },

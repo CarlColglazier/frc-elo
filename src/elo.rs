@@ -66,23 +66,15 @@ impl Teams {
         };
         // Accuracy measurement.
         // TODO: Allow this to be enabled using a flag.
-        //if m.comp_level != "qm" &&
-        if m.id.contains("2017") {
-            let actual;
+        if m.comp_level != "qm" && m.id.contains("2017") {
+            //let actual;
             /*
             if m.red_score + m.blue_score == 0 {
                 actual = 0.5f64;
             } else {
                 actual = m.red_score as f64 / (m.red_score as f64 + m.blue_score as f64);
         }*/
-            if m.red_score > m.blue_score {
-                actual = 1.0f64;
-            } else if m.red_score < m.blue_score {
-                actual = 0.0f64;
-            } else {
-                actual = 0.5f64;
-            }
-            self.brier += (expected_r - actual).powf(2.0f64);
+            self.brier += (expected_r - actual_r).powf(2.0f64);
             self.total += 1;
             //println!("{},{}", m.red_score - m.blue_score, expected_r);
             //

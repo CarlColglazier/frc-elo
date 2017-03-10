@@ -5,5 +5,31 @@ about: A predictive FRC ranking system
 subcommands:
     - sync:
         about: Sync match and event data
-    - rank:
-        about: Perform rankings
+    - elo:
+        about: Calculate Elo rankings
+    - glicko:
+        about: Calculate Glicko Ratings
+        args:
+            - all:
+                help: include all teams
+    - predict:
+        about: Predict a match outcome
+        args:
+            - red:
+                help: red alliance members
+                required: true
+            - blue:
+                help: blue alliance members
+                required: true
+    - estimate:
+        about: Estimate most likely future rankings.
+        args:
+            - event:
+                help: events key
+                required: true
+    - prob:
+        about: Estimate winning probabilities for remaining matches.
+        args:
+            - event:
+                help: event key
+                required: true
