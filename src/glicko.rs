@@ -164,8 +164,7 @@ impl GlickoTeams {
             record.results.push(m.actual_b());
             record.opponents.push(red_glicko.clone());
         }
-        //if m.comp_level != "qm" &&
-        if m.id.contains("2016") {
+        if m.comp_level != "qm" && m.id.contains("2017") {
             let predicted = red_glicko.predict(&blue_glicko);
             self.brier += (predicted - m.actual_r()).powf(2.0f64);
             self.total += 1;

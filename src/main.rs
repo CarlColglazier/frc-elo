@@ -34,7 +34,8 @@ use std::cmp::Ordering;
 use clap::App;
 
 const FIRST_YEAR: i32 = 2002;
-const CURRENT_YEAR: i32 = 2018;
+const NEXT_YEAR: i32 = 2018;
+const CURRENT_YEAR: i32 = NEXT_YEAR - 1;
 
 #[derive(Clone)]
 struct RequestData {
@@ -96,7 +97,7 @@ fn setup() {
     let request_data: Arc<Mutex<RequestData>> = Arc::new(Mutex::new(RequestData::new()));
     //println!("Syncing data");
     
-    for i in 2002..CURRENT_YEAR {
+    for i in 2002..NEXT_YEAR {
         let request_data = request_data.clone();
         let history = history.clone();
         threads.push(thread::spawn(move || {
@@ -113,7 +114,7 @@ fn setup() {
                 };
             }
             let response = tba::request(&url, &last_time);
-            if response.code != 200 && i < CURRENT_YEAR - 1 {
+            if response.code != 200 && i < NEXT_YEAR - 1 {
                 return;
             }
             {
@@ -144,6 +145,7 @@ fn setup() {
                     if response.code != 200 {
                         continue;
                     }
+                    println!("Updating {}", url);
                     {
                         let mut history = history.lock()
                             .expect("Could not get history for match writing");
@@ -265,7 +267,7 @@ fn elo (k: f64, carry_over: f64) {
     }
 }
 
-fn glicko() -> GlickoTeams {
+fn glicko(year: i32) -> GlickoTeams {
     let mut team_list = GlickoTeams::new();
     let mut current_year = FIRST_YEAR;
     let (event_list, match_list) = get_matches();
@@ -276,10 +278,9 @@ fn glicko() -> GlickoTeams {
         let ref current_event_id = event.first().unwrap().event_id;
         //println!("{}", current_event_id);
         if !current_event_id.contains(&format!("{}", current_year)) {
-            /*
-            if current_year == 2016 {
-            break;
-        }*/
+            if current_year == year {
+                break;
+            }
             team_list.new_year();
             current_year += 1;
         }
@@ -289,7 +290,7 @@ fn glicko() -> GlickoTeams {
         team_list.start_event(current_week);
         for m in event {
             team_list.process_match(&m);
-            if m.id.ends_with("qf1m1") || m.match_number % 25 == 0 {
+            if m.id.ends_with("qf1m1") || m.match_number % 20 == 0 {
                 team_list.finish_event();
             }
         }
@@ -310,7 +311,11 @@ fn main() {
         elo(16f64, 0.8f64);
     }
     if let Some(m) = cli_matches.subcommand_matches("glicko") {
-        let team_list = glicko();
+        let year: i32 = match m.value_of("year") {
+            Some(y) => y.parse().unwrap_or(NEXT_YEAR - 1),
+            None => NEXT_YEAR - 1,
+        };
+        let team_list = glicko(year);
         let mut teams = Vec::new();
         for (key, val) in &team_list.table {
             if val.glicko.deviation < 140f64 || m.is_present("all") {
@@ -322,7 +327,7 @@ fn main() {
         teams.sort_by(|x, y| y.1.rating.partial_cmp(&x.1.rating).unwrap());
         let mut i = 1;
         for (key, val) in teams {
-            println!("{}. {}  {}  ({},{}) [{}]", i, key,
+            println!("{:>4}. {:<7}  {:^4}  ({:>4},{:>4}) [{}]", i, key,
                      val.rating as i32,
                      (val.rating - 1.96f64 * val.deviation) as i32,
                      (val.rating + 1.96f64 * val.deviation) as i32,
@@ -336,7 +341,7 @@ fn main() {
         let red_list: Vec<String> = red.map(|x| x.to_owned()).collect();
         let blue = m.value_of("blue").unwrap().split(" ");
         let blue_list: Vec<String> = blue.map(|x| x.to_owned()).collect();
-        let mut team_list = glicko();
+        let mut team_list = glicko(CURRENT_YEAR);
         println!("{:?} {:?}", red_list, blue_list);
         let red_glicko = team_list.average(&red_list);
         let blue_glicko = team_list.average(&blue_list);
@@ -344,7 +349,7 @@ fn main() {
     }
     if let Some(m) = cli_matches.subcommand_matches("prob") {
         let event_key = m.value_of("event").unwrap();
-        let mut team_list = glicko();
+        let mut team_list = glicko(CURRENT_YEAR);
         let conn = db_connect();
         let match_list = matches
             .filter(event_id.eq(event_key))
@@ -366,7 +371,7 @@ fn main() {
     }
     if let Some(m) = cli_matches.subcommand_matches("estimate") {
         let event_key = m.value_of("event").unwrap();
-        let mut team_list = glicko();
+        let mut team_list = glicko(CURRENT_YEAR);
         println!("{:?}", event_key);
         let conn = db_connect();
         let match_list = matches

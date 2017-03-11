@@ -11,7 +11,13 @@ subcommands:
         about: Calculate Glicko Ratings
         args:
             - all:
+                short: a
                 help: include all teams
+            - year:
+                short: y
+                help: last year to update
+                value_name: YEAR
+                takes_value: true
     - predict:
         about: Predict a match outcome
         args:
