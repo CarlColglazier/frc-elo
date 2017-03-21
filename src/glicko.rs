@@ -4,8 +4,11 @@ use std::f64::consts::PI;
 
 const START_RATING: f64 = 0f64; //1500f64;
 const START_RD: f64 = 350f64;
-const Q: f64 = 0.00575646273;
+//const Q: f64 = 0.00575646273;
+//const Q: f64 = 0.01151292546;
+const Q: f64 = 0.0095;
 const C: f64 = 25f64;
+const GAP_WEEKS: f64 = 25f64;
 
 #[derive(Clone, Debug)]
 pub struct Glicko {
@@ -17,6 +20,13 @@ fn g(rd: f64) -> f64 {
         (1f64 + (3f64 * Q.powf(2f64) * rd.powf(2f64)) /
          PI.powf(2f64)).sqrt();
 }
+
+fn e(a_r: f64, r_j: f64, rd_j: f64) -> f64 {
+    return 1f64 /
+        (1f64 + 10f64.powf(-g(rd_j) * (a_r - r_j) / 400f64));
+}
+
+
 impl Glicko {
     pub fn new() -> Glicko {
         Glicko {
@@ -28,7 +38,7 @@ impl Glicko {
     pub fn predict(&self, other: &Glicko) -> f64 {
         return 1f64 /
             (1f64 + 10f64.powf(-g((self.deviation.powf(2f64) + other.deviation.powf(2f64)).sqrt())
-                               * (self.rating - other.rating) / 400f64));
+                               * (self.rating - other.rating) / 200f64));
     }
 }
 #[derive(Debug)]
@@ -49,9 +59,27 @@ impl GlickoTeam {
         }
     }
 
-    fn e(&self, r_j: f64, rd_j: f64) -> f64 {
-        return 1f64 /
-            (1f64 + 10f64.powf(-g(rd_j) * (self.glicko.rating - r_j) / 400f64));
+    pub fn soft_process(&self) -> Glicko {
+        let mut r_sum = 0f64;
+        let mut d_square = 0f64;
+        for i in 0..self.results.len() {
+            let result = self.results[i];
+            let ref opponent = self.opponents[i];
+            let er = e(self.glicko.rating, opponent.rating, opponent.deviation);
+            let g = g(opponent.deviation);
+            d_square += g.powf(2f64) * er * (1f64 - er);
+            r_sum += g * (result - er);
+        }
+        d_square *= Q.powf(2f64);
+        d_square = d_square.powf(-1f64);
+        let rating = self.glicko.rating + r_sum * Q /
+            ((1f64 / self.glicko.deviation.powf(2f64)) + (1f64 / d_square));
+        let deviation = ((1f64 / self.glicko.deviation.powf(2f64)) + (1f64 / d_square))
+            .powf(-1f64).sqrt();
+        return Glicko {
+            rating: rating,
+            deviation: deviation,
+        };
     }
 
     pub fn process(&mut self) {
@@ -60,10 +88,10 @@ impl GlickoTeam {
         for i in 0..self.results.len() {
             let result = self.results[i];
             let ref opponent = self.opponents[i];
-            let e = self.e(opponent.rating, opponent.deviation);
+            let er = e(self.glicko.rating, opponent.rating, opponent.deviation);
             let g = g(opponent.deviation);
-            d_square += g.powf(2f64) * e * (1f64 - e);
-            r_sum += g * (result - e);
+            d_square += g.powf(2f64) * er * (1f64 - er);
+            r_sum += g * (result - er);
         }
         d_square *= Q.powf(2f64);
         d_square = d_square.powf(-1f64);
@@ -78,6 +106,7 @@ impl GlickoTeam {
 #[derive(Debug)]
 pub struct GlickoTeams {
     pub table: HashMap<String, GlickoTeam>,
+    pub wins_correct: usize,
     pub brier: f64,
     pub total: usize,
 }
@@ -86,6 +115,7 @@ impl GlickoTeams {
     pub fn new() -> GlickoTeams {
         GlickoTeams {
             table: HashMap::new(),
+            wins_correct: 0,
             brier: 0f64,
             total: 0,
         }
@@ -114,9 +144,8 @@ impl GlickoTeams {
 
     pub fn new_year(&mut self) {
         for (_, val) in self.table.iter_mut() {
-            //val.glicko.deviation = START_RD;
             val.last_week = 0;
-            val.glicko.deviation = (val.glicko.deviation.powf(2f64) + 25f64 * C.powf(2f64))
+            val.glicko.deviation = (val.glicko.deviation.powf(2f64) + GAP_WEEKS * C.powf(2f64))
                 .sqrt();
             if val.glicko.deviation > START_RD {
                 val.glicko.deviation = START_RD;
@@ -131,7 +160,7 @@ impl GlickoTeams {
 
     fn get(&mut self, team: &String) -> Glicko {
         let entry = self.table.entry(team.to_owned()).or_insert(GlickoTeam::new());
-        return entry.glicko.clone();
+        return entry.soft_process();
     }
 
     pub fn average(&mut self, teams: &Vec<String>) -> Glicko {
@@ -164,10 +193,18 @@ impl GlickoTeams {
             record.results.push(m.actual_b());
             record.opponents.push(red_glicko.clone());
         }
-        if m.comp_level != "qm" && m.id.contains("2017") {
+        //if m.id.contains("2012") || m.id.contains("2013") || m.id.contains("2014") {
+         if m.id.contains("2017") {
+            if m.actual_r() > 0.4 && m.actual_r() < 0.6 {
+                // This is a tie
+                return;
+            }
             let predicted = red_glicko.predict(&blue_glicko);
             self.brier += (predicted - m.actual_r()).powf(2.0f64);
             self.total += 1;
+            if (m.actual_r() - predicted).abs() < 0.5f64 {
+                self.wins_correct += 1;
+            }
         }
     }
 }

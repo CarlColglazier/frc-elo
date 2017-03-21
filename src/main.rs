@@ -27,7 +27,7 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::clone::Clone;
-use pbr::ProgressBar;
+//use pbr::ProgressBar;
 use schema::matches::dsl::*;
 use schema::events::dsl::*;
 use std::cmp::Ordering;
@@ -128,10 +128,10 @@ fn setup() {
                 let mut event_list: Vec<models::EventJSON> = serde_json::from_str(&data_str)
                     .expect("Could not parse events JSON");
                 info.events.append(&mut event_list);
-                let mut bar = ProgressBar::new(info.events.len() as u64);
+                //let mut bar = ProgressBar::new(info.events.len() as u64);
                 for event in &info.events {
-                    bar.inc();
-                    let url = format!("event/{}/matches", event.key);
+                    //bar.inc();
+                    let url = format!("event/{}/matches/simple", event.key);
                     let mut last_time = String::new();
                     {
                         let history = history.lock()
@@ -192,6 +192,7 @@ fn get_matches() -> (Vec<Event>, Vec<Vec<Matche>>) {
     let conn = db_connect();
     let event_list = events
         .filter(official.eq(1))
+        //.filter(start_date.gt("2008"))
         .order(start_date)
     //.order(schema::events::dsl::id)
         .load::<Event>(&conn).expect("Could not query events");
@@ -255,6 +256,9 @@ fn elo (k: f64, carry_over: f64) {
     }
     let brier = team_list.brier / team_list.total as f64;
     println!("Brier: {}", brier);
+    println!("BSS: {}", 1f64 - brier / 0.25f64);
+    println!("Predicted {} of {}, {}", team_list.wins_correct, team_list.total,
+             team_list.wins_correct as f64 / team_list.total as f64);
     let mut teams = Vec::new();
     for (key, val) in team_list.table {
         teams.push((key, val));
@@ -290,7 +294,7 @@ fn glicko(year: i32) -> GlickoTeams {
         team_list.start_event(current_week);
         for m in event {
             team_list.process_match(&m);
-            if m.id.ends_with("qf1m1") || m.match_number % 20 == 0 {
+            if m.id.ends_with("qf1m1") { // || m.match_number % 20 == 0 {
                 team_list.finish_event();
             }
         }
@@ -308,7 +312,7 @@ fn main() {
         setup();
     }
     if let Some(_) = cli_matches.subcommand_matches("elo") {
-        elo(16f64, 0.8f64);
+        elo(15f64, 0.8f64);
     }
     if let Some(m) = cli_matches.subcommand_matches("glicko") {
         let year: i32 = match m.value_of("year") {
@@ -324,6 +328,9 @@ fn main() {
         }
         let brier = team_list.brier / team_list.total as f64;
         println!("Brier: {}", brier);
+        println!("BSS: {}", 1f64 - brier / 0.25f64);
+        println!("Predicted {} of {}, {}", team_list.wins_correct, team_list.total,
+                 team_list.wins_correct as f64 / team_list.total as f64);
         teams.sort_by(|x, y| y.1.rating.partial_cmp(&x.1.rating).unwrap());
         let mut i = 1;
         for (key, val) in teams {
