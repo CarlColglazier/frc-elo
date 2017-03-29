@@ -37,7 +37,7 @@ use rand::Rng;
 
 const FIRST_YEAR: i32 = 2002;
 const NEXT_YEAR: i32 = 2018;
-const CURRENT_YEAR: i32 = NEXT_YEAR - 1;
+pub const CURRENT_YEAR: i32 = NEXT_YEAR - 1;
 const EST_RUNS: usize = 2500;
 
 #[derive(Clone)]
@@ -97,88 +97,41 @@ fn db_connect() -> SqliteConnection {
 fn setup() {
     let mut threads = Vec::new();
     let history = Arc::new(Mutex::new(open_history()));
-    let request_data: Arc<Mutex<RequestData>> = Arc::new(Mutex::new(RequestData::new()));
-    //println!("Syncing data");
+    let mut request_data: RequestData = RequestData::new();
     
     for i in 2002..NEXT_YEAR {
-        let request_data = request_data.clone();
         let history = history.clone();
         threads.push(thread::spawn(move || {
             let mut info = RequestData::new();
-            let url = format!("events/{}", i);
-            let mut last_time = String::new();
-            
-            {
-                let history = history.lock()
-                    .expect("Could not lock history for getting event time");
-                match history.get(&url) {
-                    Some(date) => last_time.push_str(&date),
-                    None => {},
-                };
-            }
-            let response = tba::request(&url, &last_time);
-            if response.code != 200 && i < NEXT_YEAR - 1 {
-                return;
-            }
-            {
-                let mut history = history.lock()
-                    .expect("Could not lock history for setting event time");
-                history.insert(url, response.last_modified.trim().to_string());
-            }
-            if response.data.len() > 0 {
-                let data_str = str::from_utf8(&response.data)
-                    .expect("Could not load data string");
-                let mut event_list: Vec<models::EventJSON> = serde_json::from_str(&data_str)
-                    .expect("Could not parse events JSON");
+            if let Some(mut event_list) = tba::get_events(history.clone(), i) {
                 info.events.append(&mut event_list);
-                //let mut bar = ProgressBar::new(info.events.len() as u64);
-                for event in &info.events {
-                    //bar.inc();
-                    let url = format!("event/{}/matches/simple", event.key);
-                    let mut last_time = String::new();
-                    {
-                        let history = history.lock()
-                            .expect("Could not get history for match reading");
-                        match history.get(&url) {
-                            Some(date) => last_time.push_str(&date),
-                            None => {},
-                        };
-                    }
-                    let response = tba::request(&url, &last_time);
-                    if response.code != 200 {
-                        continue;
-                    }
-                    println!("Updating {}", url);
-                    {
-                        let mut history = history.lock()
-                            .expect("Could not get history for match writing");
-                        history.insert(url, response.last_modified.trim().to_string());
-                    }
-                    let data_str = str::from_utf8(&response.data)
-                        .expect("Could not load match data string");
-                    let mut game_matches: Vec<models::GameMatch> =
-                        match serde_json::from_str(&data_str) {
-                            Ok(m) => m,
-                            Err(e) => {
-                                println!("Error: {}", e.description());
-                                continue;
-                            },
-                        };
-                    info.matches.append(&mut game_matches);
+                let mut event_threads = Vec::new();
+                for event in info.events.clone() {
+                    let history = history.clone();
+                    event_threads.push(thread::spawn(move || {
+                        if let Some(em) = tba::get_event_matches(history.clone(), &event.key) {
+                            return em;
+                        }
+                        return Vec::new();
+                    }));
                 }
-                let mut request_data = request_data.lock()
-                    .expect("Could not lock request data");
-                request_data.events.append(&mut info.events);
-                request_data.matches.append(&mut info.matches);
+                for child in event_threads {
+                    if let Ok(mut game_matches) = child.join() {
+                        info.matches.append(&mut game_matches);
+                    }
+                }
             }
+            return info;
         }));
     }
     for child in threads {
-        let _ = child.join();
+        if let Ok(mut info) = child.join() {
+            request_data.events.append(&mut info.events);
+            request_data.matches.append(&mut info.matches);
+        }
     }
-    let result = request_data.lock().unwrap();
-    //println!("Found {} new events and {} new matches", result.events.len(), result.matches.len());
-    //println!("Updating database");
+    let result = request_data;
+    println!("Writing to database");
     let conn = db_connect();
     let new_events: Vec<NewEvent> = result.events.iter().map(|x| prepare_event(x)).collect();
     diesel::insert_or_replace(&new_events).into(events).execute(&conn)
@@ -191,13 +144,11 @@ fn setup() {
 }
 
 fn get_matches() -> (Vec<Event>, Vec<Vec<Matche>>) {
-    //println!("Calculating Elo rankings");
     let conn = db_connect();
     let event_list = events
         .filter(official.eq(1))
     //.filter(start_date.gt("2008"))
         .order(start_date)
-    //.order(schema::events::dsl::id)
         .load::<Event>(&conn).expect("Could not query events");
     let event_match_list = Matche::belonging_to(&event_list)
         .filter(red_score.gt(-1))
@@ -239,7 +190,6 @@ fn get_matches() -> (Vec<Event>, Vec<Vec<Matche>>) {
     }
     return (event_list, final_list);
 }
-//println!("Actual,Predicted");
 
 fn elo (k: f64, carry_over: f64) {
     let mut team_list = Teams::new(k, carry_over);
@@ -443,7 +393,7 @@ fn main() {
             let mut teams = Vec::new();
             for (team, val) in rankings {
                 teams.push((team, val));
- }
+            }
             teams.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
             for i in 0..teams.len() {
                 let (ref team, ref val) = teams[i];
