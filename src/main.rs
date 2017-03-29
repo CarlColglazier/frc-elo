@@ -8,6 +8,7 @@ extern crate serde_json;
 extern crate csv;
 extern crate pbr;
 #[macro_use] extern crate clap;
+extern crate rand;
 
 mod tba;
 mod schema;
@@ -32,10 +33,12 @@ use schema::matches::dsl::*;
 use schema::events::dsl::*;
 use std::cmp::Ordering;
 use clap::App;
+use rand::Rng;
 
 const FIRST_YEAR: i32 = 2002;
 const NEXT_YEAR: i32 = 2018;
 const CURRENT_YEAR: i32 = NEXT_YEAR - 1;
+const EST_RUNS: usize = 2500;
 
 #[derive(Clone)]
 struct RequestData {
@@ -192,7 +195,7 @@ fn get_matches() -> (Vec<Event>, Vec<Vec<Matche>>) {
     let conn = db_connect();
     let event_list = events
         .filter(official.eq(1))
-        //.filter(start_date.gt("2008"))
+    //.filter(start_date.gt("2008"))
         .order(start_date)
     //.order(schema::events::dsl::id)
         .load::<Event>(&conn).expect("Could not query events");
@@ -378,7 +381,7 @@ fn main() {
     }
     if let Some(m) = cli_matches.subcommand_matches("estimate") {
         let event_key = m.value_of("event").unwrap();
-        let mut team_list = glicko(CURRENT_YEAR);
+        let team_list = glicko(CURRENT_YEAR);
         println!("{:?}", event_key);
         let conn = db_connect();
         let match_list = matches
@@ -386,36 +389,83 @@ fn main() {
             .filter(comp_level.eq("qm"))
             .load::<Matche>(&conn)
             .expect("matches");
-        let mut rankings: HashMap<String, f64> = HashMap::new();
-        for m in &match_list {
-            let completed = m.blue_score != -1 && m.red_score != -1;
-            let red_glicko = team_list.average(&m.get_red());
-            let blue_glicko = team_list.average(&m.get_blue());
-            let prediction = red_glicko.predict(&blue_glicko);
-            for team in &m.get_red() {
-                let mut ranking = rankings.entry(team.to_owned()).or_insert(0f64);
+        let mut full_rankings: HashMap<String, (usize, usize, usize, usize)> = HashMap::new();
+        for _ in 0..EST_RUNS {
+            let mut rankings: HashMap<String, usize> = HashMap::new();
+            let mut team_list = team_list.clone();
+            for m in &match_list {
+                let completed = m.blue_score != -1 && m.red_score != -1;
+                let red_glicko = team_list.average(&m.get_red());
+                let blue_glicko = team_list.average(&m.get_blue());
+                let prediction = red_glicko.predict(&blue_glicko);
+                let mut rng = rand::thread_rng();
                 if completed {
-                    *ranking += 2f64 * m.actual_r();
+                    for team in &m.get_red() {
+                        let ranking  = rankings.entry(team.to_owned()).or_insert(0);
+                        *ranking += 2 * m.actual_r() as usize;
+                    }
+                    for team in &m.get_blue() {
+                        let ranking = rankings.entry(team.to_owned()).or_insert(0);
+                        *ranking += 2 * m.actual_b() as usize;
+                    }
                 } else {
-                    *ranking += 2f64 * prediction;
+                    let outcome = rng.gen::<f64>();
+                    if outcome < prediction {
+                        for team in &m.get_red() {
+                            let ranking = rankings.entry(team.to_owned()).or_insert(0);
+                            *ranking += 2;
+                            let team_list_entry = team_list.get_team(team);
+                            team_list_entry.results.push(1f64);
+                            team_list_entry.opponents.push(blue_glicko.clone());
+                        }
+                        for team in &m.get_blue() {
+                            let team_list_entry = team_list.get_team(team);
+                            team_list_entry.results.push(0f64);
+                            team_list_entry.opponents.push(red_glicko.clone());
+                        }
+                    } else {
+                        for team in &m.get_blue() {
+                            let ranking = rankings.entry(team.to_owned()).or_insert(0);
+                            *ranking += 2;
+                            let team_list_entry = team_list.get_team(team);
+                            team_list_entry.results.push(1f64);
+                            team_list_entry.opponents.push(red_glicko.clone());
+                        }
+                        for team in &m.get_red() {
+                            let team_list_entry = team_list.get_team(team);
+                            team_list_entry.results.push(0f64);
+                            team_list_entry.opponents.push(blue_glicko.clone());
+                        }
+                    }
                 }
+                
             }
-            for team in &m.get_blue() {
-                let mut ranking = rankings.entry(team.to_owned()).or_insert(0f64);
-                if completed {
-                    *ranking += 2f64 * m.actual_b();
-                } else {
-                    *ranking += 2f64 * (1f64 - prediction);
+            let mut teams = Vec::new();
+            for (team, val) in rankings {
+                teams.push((team, val));
+ }
+            teams.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
+            for i in 0..teams.len() {
+                let (ref team, ref val) = teams[i];
+                let entry = full_rankings.entry(team.to_owned()).or_insert((0,0,0,0));
+                entry.0 += *val;
+                entry.1 += i + 1;
+                if i == 0 {
+                    entry.2 += 1;
+                }
+                if i < 8 {
+                    entry.3 += 1;
                 }
             }
         }
         let mut teams = Vec::new();
-        for (team, val) in rankings {
-            teams.push((team, val));
+        for (team, val) in full_rankings {
+            teams.push((team, val.0, val.1, val.2, val.3));
         }
         teams.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
-        for (key, val) in teams {
-            println!("{} {}", key, val);
+        for (key, val, rank, tops, caps) in teams {
+            println!("{} {:<07} {:<07} {:<4} {:<4}", key, val as f64 / EST_RUNS as f64,
+                     rank as f64 / EST_RUNS as f64, tops, caps);
         }
     }
 }

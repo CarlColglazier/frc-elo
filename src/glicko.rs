@@ -4,11 +4,9 @@ use std::f64::consts::PI;
 
 const START_RATING: f64 = 0f64; //1500f64;
 const START_RD: f64 = 350f64;
-//const Q: f64 = 0.00575646273;
-//const Q: f64 = 0.01151292546;
-const Q: f64 = 0.0095;
-const C: f64 = 25f64;
-const GAP_WEEKS: f64 = 25f64;
+const Q: f64 = 0.01151292546;
+const C: f64 = 30f64;
+const GAP_WEEKS: f64 = 12f64;
 
 #[derive(Clone, Debug)]
 pub struct Glicko {
@@ -41,7 +39,8 @@ impl Glicko {
                                * (self.rating - other.rating) / 200f64));
     }
 }
-#[derive(Debug)]
+
+#[derive(Clone, Debug)]
 pub struct GlickoTeam {
     pub glicko: Glicko,
     pub results: Vec<f64>,
@@ -103,7 +102,7 @@ impl GlickoTeam {
         self.opponents.clear();
     }
 }
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct GlickoTeams {
     pub table: HashMap<String, GlickoTeam>,
     pub wins_correct: usize,
@@ -145,6 +144,7 @@ impl GlickoTeams {
     pub fn new_year(&mut self) {
         for (_, val) in self.table.iter_mut() {
             val.last_week = 0;
+            //val.glicko.rating = val.glicko.rating * 0.9f64 + 400f64 * 0.1;
             val.glicko.deviation = (val.glicko.deviation.powf(2f64) + GAP_WEEKS * C.powf(2f64))
                 .sqrt();
             if val.glicko.deviation > START_RD {
@@ -153,7 +153,7 @@ impl GlickoTeams {
         }
     }
 
-    fn get_team(&mut self, team: &String) -> &mut GlickoTeam {
+    pub fn get_team(&mut self, team: &String) -> &mut GlickoTeam {
         let entry = self.table.entry(team.to_owned()).or_insert(GlickoTeam::new());
         return entry;
     }
@@ -183,6 +183,7 @@ impl GlickoTeams {
         let blue = m.get_blue();
         let red_glicko = self.average(&red);
         let blue_glicko = self.average(&blue);
+        
         for team in &red {
             let mut record = self.get_team(team);
             record.results.push(m.actual_r());
@@ -194,12 +195,18 @@ impl GlickoTeams {
             record.opponents.push(red_glicko.clone());
         }
         //if m.id.contains("2012") || m.id.contains("2013") || m.id.contains("2014") {
-         if m.id.contains("2017") {
+        if m.id.contains("2017") {
             if m.actual_r() > 0.4 && m.actual_r() < 0.6 {
                 // This is a tie
                 return;
             }
             let predicted = red_glicko.predict(&blue_glicko);
+            let mid = 0.85f64;
+            let range = 0.15f64;
+            if predicted > mid + range || predicted < (1f64 - mid) - range ||
+                (predicted < mid - range && predicted > (1f64 - mid) + range) {
+                return;
+            }
             self.brier += (predicted - m.actual_r()).powf(2.0f64);
             self.total += 1;
             if (m.actual_r() - predicted).abs() < 0.5f64 {

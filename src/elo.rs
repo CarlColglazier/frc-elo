@@ -73,8 +73,8 @@ impl Teams {
         // Accuracy measurement.
         // TODO: Allow this to be enabled using a flag.
         //if m.comp_level != "qm" &&
-        //if m.id.contains("2012") || m.id.contains("2013") || m.id.contains("2014") {
-        if m.id.contains("2017") {
+        if m.id.contains("2012") || m.id.contains("2013") || m.id.contains("2014") {
+        //if m.id.contains("2017") {
             if m.actual_r() > 0.4 && m.actual_r() < 0.6 {
                 return;
             }
