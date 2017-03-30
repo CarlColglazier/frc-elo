@@ -22,6 +22,7 @@ use diesel::prelude::*;
 use models::*;
 use elo::Teams;
 use glicko::GlickoTeams;
+use tba::TeamEventRanking;
 use std::{thread, str, env};
 use std::fs::OpenOptions;
 use std::error::Error;
@@ -35,18 +36,31 @@ use std::cmp::Ordering;
 use clap::App;
 use rand::Rng;
 
+/// The first year for which data exists.
+/// This is used by the `sync` command as the first
+/// year from which events are fetched.
 const FIRST_YEAR: i32 = 2002;
-const NEXT_YEAR: i32 = 2018;
-pub const CURRENT_YEAR: i32 = NEXT_YEAR - 1;
-const EST_RUNS: usize = 2500;
+/// The current year or the last year from which
+/// events are fetched.
+const CURRENT_YEAR: i32 = 2017;
+/// Based off of the `CURRENT_YEAR`. Used in several
+/// loops.
+const NEXT_YEAR: i32 = CURRENT_YEAR + 1;
+/// The number of simulations to run when modeling. 
+const EST_RUNS: usize = 10000;
 
+/// Holds events and matches which will eventually
+/// need to be added to the database.
 #[derive(Clone)]
 struct RequestData {
+    /// A list of event responses from parsed JSON.
     events: Vec<models::EventJSON>,
+    /// A list of match responses from parsed JSON.
     matches: Vec<models::GameMatch>,
 }
 
 impl RequestData {
+    /// Create an empty instance of `RequestData`.
     pub fn new() -> RequestData {
         RequestData {
             events: Vec::new(),
@@ -61,6 +75,8 @@ struct HistoryRecord {
     time: String,
 }
 
+/// Get the hash map containing the URLs and time strings.
+/// Values are read form a CSV file named `tba_history.csv`.
 fn open_history() -> HashMap<String, String> {
     let f = OpenOptions::new().create(true).write(true).open("tba_history.csv").unwrap();
     drop(f);
@@ -79,6 +95,7 @@ fn open_history() -> HashMap<String, String> {
     return map;
 }
 
+/// Given a hash map, record to a CSV file named `tba_history.csv`
 fn write_history(map: &HashMap<String, String>) {
     let mut wtr = csv::Writer::from_file("tba_history.csv").unwrap();
     for record in map.iter() {
@@ -340,8 +357,16 @@ fn main() {
             .load::<Matche>(&conn)
             .expect("matches");
         let mut full_rankings: HashMap<String, (usize, usize, usize, usize)> = HashMap::new();
+        let mut rankings: HashMap<String, TeamEventRanking> = HashMap::new();
+        if let Some(ranking_json) = tba::get_rankings(event_key) {
+            let rank_entries = ranking_json.rankings;
+            for entry in rank_entries {
+                rankings.insert(entry.key(), entry);
+            }
+            //for 
+        }
         for _ in 0..EST_RUNS {
-            let mut rankings: HashMap<String, usize> = HashMap::new();
+            let mut rankings = rankings.clone();
             let mut team_list = team_list.clone();
             for m in &match_list {
                 let completed = m.blue_score != -1 && m.red_score != -1;
@@ -350,38 +375,86 @@ fn main() {
                 let prediction = red_glicko.predict(&blue_glicko);
                 let mut rng = rand::thread_rng();
                 if completed {
+                    if rankings.len() > 0 {
+                        continue;
+                    }
                     for team in &m.get_red() {
-                        let ranking  = rankings.entry(team.to_owned()).or_insert(0);
-                        *ranking += 2 * m.actual_r() as usize;
+                        let ranking  = rankings.entry(team.to_owned())
+                            .or_insert(TeamEventRanking::new(team));
+                        if m.actual_r() > 0.9999 {
+                            ranking.add_win();
+                        } else {
+                            ranking.add_loss();
+                        }
                     }
                     for team in &m.get_blue() {
-                        let ranking = rankings.entry(team.to_owned()).or_insert(0);
-                        *ranking += 2 * m.actual_b() as usize;
+                        let ranking = rankings.entry(team.to_owned())
+                            .or_insert(TeamEventRanking::new(team));
+                        if m.actual_b() > 0.999 {
+                            ranking.add_win();
+                        } else {
+                            ranking.add_loss();
+                        }
                     }
                 } else {
                     let outcome = rng.gen::<f64>();
+                    let extra_prob = rng.gen::<f64>();
+                    let mut red_extra_prob = 1f64;
+                    for team in &m.get_red() {
+                        let ranking = rankings.entry(team.to_owned())
+                            .or_insert(TeamEventRanking::new(team));
+                        red_extra_prob *= 1f64 - ranking.extra_prob();
+                    }
+                    if extra_prob > red_extra_prob {
+                        for team in &m.get_red() {
+                            let ranking = rankings.entry(team.to_owned())
+                                .or_insert(TeamEventRanking::new(team));
+                            ranking.add_extra();
+                        }
+                    }
+                    let mut blue_extra_prob = 1f64;
+                    for team in &m.get_blue() {
+                        let ranking = rankings.entry(team.to_owned())
+                            .or_insert(TeamEventRanking::new(team));
+                        blue_extra_prob *= 1f64 - ranking.extra_prob();
+                    }
+                    if extra_prob > blue_extra_prob {
+                        for team in &m.get_blue() {
+                            let ranking = rankings.entry(team.to_owned())
+                                .or_insert(TeamEventRanking::new(team));
+                            ranking.add_extra();
+                        }
+                    }
                     if outcome < prediction {
                         for team in &m.get_red() {
-                            let ranking = rankings.entry(team.to_owned()).or_insert(0);
-                            *ranking += 2;
+                            let ranking = rankings.entry(team.to_owned())
+                                .or_insert(TeamEventRanking::new(team));
+                            ranking.add_win();
                             let team_list_entry = team_list.get_team(team);
                             team_list_entry.results.push(1f64);
                             team_list_entry.opponents.push(blue_glicko.clone());
                         }
                         for team in &m.get_blue() {
+                            let ranking = rankings.entry(team.to_owned())
+                                .or_insert(TeamEventRanking::new(team));
+                            ranking.add_loss();
                             let team_list_entry = team_list.get_team(team);
                             team_list_entry.results.push(0f64);
                             team_list_entry.opponents.push(red_glicko.clone());
                         }
                     } else {
                         for team in &m.get_blue() {
-                            let ranking = rankings.entry(team.to_owned()).or_insert(0);
-                            *ranking += 2;
+                            let ranking = rankings.entry(team.to_owned())
+                                .or_insert(TeamEventRanking::new(team));
+                            ranking.add_win();
                             let team_list_entry = team_list.get_team(team);
                             team_list_entry.results.push(1f64);
                             team_list_entry.opponents.push(red_glicko.clone());
                         }
                         for team in &m.get_red() {
+                            let ranking = rankings.entry(team.to_owned())
+                                .or_insert(TeamEventRanking::new(team));
+                            ranking.add_loss();
                             let team_list_entry = team_list.get_team(team);
                             team_list_entry.results.push(0f64);
                             team_list_entry.opponents.push(blue_glicko.clone());
@@ -391,12 +464,12 @@ fn main() {
                 
             }
             let mut teams = Vec::new();
-            for (team, val) in rankings {
-                teams.push((team, val));
+            for (team, val) in rankings.iter_mut() {
+                teams.push((team, val.to_usize()));
             }
             teams.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
             for i in 0..teams.len() {
-                let (ref team, ref val) = teams[i];
+                let (team, ref val) = teams[i];
                 let entry = full_rankings.entry(team.to_owned()).or_insert((0,0,0,0));
                 entry.0 += *val;
                 entry.1 += i + 1;
@@ -414,7 +487,7 @@ fn main() {
         }
         teams.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
         for (key, val, rank, tops, caps) in teams {
-            println!("{} {:<07} {:<07} {:<4} {:<4}", key, val as f64 / EST_RUNS as f64,
+            println!("{:8} {:>5.2} {:>5.2} {:<5} {:<5}", key, val as f64 / EST_RUNS as f64,
                      rank as f64 / EST_RUNS as f64, tops, caps);
         }
     }

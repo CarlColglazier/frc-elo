@@ -116,3 +116,100 @@ pub fn request(url_ext: &str, date: &str) -> Response {
         last_modified: headers,
     };
 }
+
+#[derive(Deserialize, Debug, Clone)]
+struct WinLossRecord {
+    losses: usize,
+    ties: usize,
+    wins: usize,
+}
+
+impl WinLossRecord {
+    fn new() -> WinLossRecord {
+        WinLossRecord {
+            losses: 0,
+            ties: 0,
+            wins: 0,
+        }
+    }
+    
+    fn to_usize(&self) -> usize {
+        return 2 * self.wins + self.ties;
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct TeamEventRanking {
+    matches_played: usize,
+    extra_stats: Vec<usize>,
+    record: WinLossRecord,
+    team_key: String,
+}
+
+#[derive(Deserialize, Queryable, Debug, Clone)]
+pub struct RankingResultJSON {
+    pub rankings: Vec<TeamEventRanking>,
+}
+
+impl TeamEventRanking {
+    pub fn new(key: &str) -> TeamEventRanking {
+        let mut new = TeamEventRanking {
+            matches_played: 0,
+            extra_stats: Vec::new(),
+            record: WinLossRecord::new(),
+            team_key: String::from(key),
+        };
+        new.extra_stats.push(0);
+        return new;
+    }
+    
+    pub fn to_usize(&mut self) -> usize {
+        if self.extra_stats.len() == 0 {
+            self.extra_stats.push(self.record.to_usize());
+        }
+        return self.extra_stats[0];
+    }
+
+    pub fn extra_prob(&mut self) -> f64 {
+        return (self.to_usize() - self.record.to_usize()) as f64 /
+            self.matches_played as f64;
+    }
+
+    pub fn add_win(&mut self) {
+        self.record.wins += 1;
+        self.matches_played += 1;
+        self.extra_stats[0] += 2;
+    }
+
+    pub fn add_loss(&mut self) {
+        self.record.losses += 1;
+        self.matches_played += 1;
+    }
+
+    pub fn add_extra(&mut self) {
+        if self.extra_stats.len() > 0 {
+            self.extra_stats[0] += 1;
+        }
+    }
+
+    pub fn key(&self) -> String {
+        return self.team_key.clone();
+    }
+}
+
+pub fn get_rankings(key: &str) -> Option<RankingResultJSON> {
+    let url = format!("event/{}/rankings", key);
+    let response = request(&url, &String::new());
+    if response.code != 200 {
+        return None;
+    }
+    let data_str = str::from_utf8(&response.data)
+        .expect("Could not load event rankings string");
+    let _ : RankingResultJSON = match serde_json::from_str(&data_str) {
+        Ok(m) => return Some(m),
+        Err(e) => {
+            println!("Error: {}", e.description());
+            return None;
+        },
+    };
+}
