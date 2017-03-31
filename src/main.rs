@@ -403,7 +403,10 @@ fn main() {
                     for team in &m.get_red() {
                         let ranking = rankings.entry(team.to_owned())
                             .or_insert(TeamEventRanking::new(team));
-                        red_extra_prob *= 1f64 - ranking.extra_prob();
+                        if ranking.matches_played > 3 {
+                            red_extra_prob *= 1f64 - ranking.extra_prob()
+                                * (ranking.matches_played as f64 / 4f64);
+                        }
                     }
                     if extra_prob > red_extra_prob {
                         for team in &m.get_red() {
@@ -416,7 +419,12 @@ fn main() {
                     for team in &m.get_blue() {
                         let ranking = rankings.entry(team.to_owned())
                             .or_insert(TeamEventRanking::new(team));
-                        blue_extra_prob *= 1f64 - ranking.extra_prob();
+                        if ranking.matches_played > 3 {
+                            blue_extra_prob *= 1f64 - ranking.extra_prob();
+                        } else {
+                            blue_extra_prob *= 1f64 - ranking.extra_prob()
+                                * (ranking.matches_played as f64 / 4f64);
+                        }
                     }
                     if extra_prob > blue_extra_prob {
                         for team in &m.get_blue() {
@@ -461,7 +469,6 @@ fn main() {
                         }
                     }
                 }
-                
             }
             let mut teams = Vec::new();
             for (team, val) in rankings.iter_mut() {
@@ -487,7 +494,7 @@ fn main() {
         }
         teams.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
         for (key, val, rank, tops, caps) in teams {
-            println!("{:8} {:>5.2} {:>5.2} {:<5} {:<5}", key, val as f64 / EST_RUNS as f64,
+            println!("{:8} {:>5.2} {:>5.2} {:<6} {:<6}", key, val as f64 / EST_RUNS as f64,
                      rank as f64 / EST_RUNS as f64, tops, caps);
         }
     }

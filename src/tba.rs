@@ -19,7 +19,7 @@ pub fn get_events(history: Arc<Mutex<HashMap<String, String>>>,
                   year: i32) -> Option<Vec<models::EventJSON>> {
     let url = format!("events/{}", year);
     let mut last_time = String::new();
-    {
+    if year != CURRENT_YEAR {
         let history = history.lock()
             .expect("Could not lock history for getting event time");
         match history.get(&url) {
@@ -28,7 +28,7 @@ pub fn get_events(history: Arc<Mutex<HashMap<String, String>>>,
         };
     }
     let response = request(&url, &last_time);
-    if response.code != 200 && year < CURRENT_YEAR {
+    if response.code != 200 { //&& year < CURRENT_YEAR {
         return None;
     }
     {
@@ -140,7 +140,7 @@ impl WinLossRecord {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct TeamEventRanking {
-    matches_played: usize,
+    pub matches_played: usize,
     extra_stats: Vec<usize>,
     record: WinLossRecord,
     team_key: String,
@@ -171,8 +171,12 @@ impl TeamEventRanking {
     }
 
     pub fn extra_prob(&mut self) -> f64 {
-        return (self.to_usize() - self.record.to_usize()) as f64 /
+        let prob = (self.to_usize() - self.record.to_usize()) as f64 /
             self.matches_played as f64;
+        if prob > 0f64 {
+            return prob;
+        }
+        return 0f64;
     }
 
     pub fn add_win(&mut self) {
