@@ -7,3 +7,6 @@ tba_history.csv
 *.sql
 *.txt
 .Rhistory
+public/
+*.sh
+*.html

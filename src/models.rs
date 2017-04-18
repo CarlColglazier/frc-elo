@@ -123,6 +123,10 @@ impl Matche {
         }
         return 0.5f64;
     }
+
+    pub fn score_margin(&self) -> i32 {
+        return self.red_score - self.blue_score;
+    }
 }
 
 #[derive(Insertable)]

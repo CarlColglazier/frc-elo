@@ -7,35 +7,38 @@ subcommands:
         about: Sync match and event data
     - elo:
         about: Calculate Elo rankings
-    - glicko:
-        about: Calculate Glicko Ratings
         args:
-            - all:
-                short: a
-                help: include all teams
-            - year:
-                short: y
-                help: last year to update
-                value_name: YEAR
-                takes_value: true
-    - predict:
-        about: Predict a match outcome
-        args:
-            - red:
-                help: red alliance members
-                required: true
-            - blue:
-                help: blue alliance members
-                required: true
-    - estimate:
-        about: Estimate most likely future rankings.
-        args:
-            - event:
-                help: events key
-                required: true
-    - prob:
-        about: Estimate winning probabilities for remaining matches.
-        args:
-            - event:
-                help: event key
-                required: true
+            - html:
+                 help: Generate HTML pages.
+#    - glicko:
+#        about: Calculate Glicko Ratings
+#        args:
+#            - all:
+#                short: a
+#                help: include all teams
+#            - year:
+#                short: y
+#                help: last year to update
+#                value_name: YEAR
+#                takes_value: true
+#    - predict:
+#        about: Predict a match outcome
+#        args:
+#            - red:
+#                help: red alliance members
+#                required: true
+#            - blue:
+#                help: blue alliance members
+#                required: true
+#    - estimate:
+#        about: Estimate most likely future rankings.
+#        args:
+#            - event:
+#                help: events key
+#                required: true
+#    - prob:
+#        about: Estimate winning probabilities for remaining matches.
+#        args:
+#            - event:
+#                help: event key
+#                required: true

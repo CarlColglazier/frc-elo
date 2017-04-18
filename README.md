@@ -18,3 +18,6 @@ install `diesel_cli` by running
 ```
 cargo install diesel_cli
 ```
+
+For this install to work, you will need to have an implementation of
+both PostgreSQL and MySQL installed.

@@ -1,7 +1,10 @@
 use super::models::Matche;
 use std::collections::HashMap;
 
-const START_SCORE: f64 = -150f64;
+const START_SCORE: f64 = 0f64;
+const NEW_AVG: f64 = 150f64;
+const SCORE_STD: &'static [f64] = &[17.6, 50.9, 45.6, 24.6, 28.4, 46.2,
+    24.4, 21.0, 2.7, 28.4, 15.5, 31.1, 49.3, 33.2, 27.5, 74.0];
 
 pub struct Teams {
     pub table: HashMap<String, f64>,
@@ -10,10 +13,12 @@ pub struct Teams {
     carry_over: f64,
     pub brier: f64,
     pub total: usize,
+    start_year: usize,
+    current_year: usize,
 }
 
 impl Teams {
-    pub fn new(k: f64, carry_over: f64) -> Teams {
+    pub fn new(k: f64, carry_over: f64, start_year: usize) -> Teams {
         Teams {
             table: HashMap::new(),
             k: k,
@@ -21,13 +26,16 @@ impl Teams {
             carry_over: carry_over,
             brier: 0.0f64,
             total: 0,
+            start_year: start_year,
+            current_year: start_year,
         }
     }
 
     pub fn new_year(&mut self) {
         for (_, val) in self.table.iter_mut() {
-            *val *= self.carry_over;
+            *val = *val * self.carry_over + NEW_AVG * (1f64 - self.carry_over);
         }
+        self.current_year += 1;
     }
 
     fn get(&mut self, team: &String) -> f64 {
@@ -36,6 +44,7 @@ impl Teams {
     }
 
     pub fn update(&mut self, team: &String, change: f64) {
+        
         let mut entry = self.table.entry(team.to_owned()).or_insert(START_SCORE);
         *entry += change;
     }
@@ -58,7 +67,12 @@ impl Teams {
         } else {
             modifier = 3f64;
         }
-        let change_r = self.k * (actual_r - expected_r) / modifier;
+        let predicted_score_diff = (red - blue) * 0.004f64
+            * SCORE_STD[self.current_year - self.start_year];
+        let score_margin_adj = (m.score_margin() as f64 - predicted_score_diff)
+            / SCORE_STD[self.current_year - self.start_year];
+        //let score_change;
+        let change_r = self.k * score_margin_adj / modifier;
         self.update(&m.red1, change_r);
         self.update(&m.red2, change_r);
         if let Some(ref m) = m.red3 {
@@ -70,11 +84,21 @@ impl Teams {
             Some(ref m) => self.update(m, -change_r),
             None => {},
         };
+        /*
+        let team = "frc2642";
+        if m.red1 == team || m.red2 == team || m.red3 == Some(String::from(team)) {
+                println!("{}: E({:.0}) A({}) C({:.1}) N({:.1})", m.id, predicted_score_diff, m.score_margin(),
+                         change_r, self.get(&String::from(team)));
+        }
+        if m.blue1 == team || m.blue2 == team || m.blue3 == Some(String::from(team)) {
+            println!("{}: E({:.0}) A({}) C({:.1}) N({:.1})", m.id, -predicted_score_diff, -m.score_margin(),
+                     -change_r, self.get(&String::from(team)));
+        }*/
         // Accuracy measurement.
         // TODO: Allow this to be enabled using a flag.
         //if m.comp_level != "qm" &&
-        if m.id.contains("2012") || m.id.contains("2013") || m.id.contains("2014") {
-        //if m.id.contains("2017") {
+        //if m.id.contains("2012") || m.id.contains("2013") || m.id.contains("2014") {
+        if m.id.contains("2017") {
             if m.actual_r() > 0.4 && m.actual_r() < 0.6 {
                 return;
             }

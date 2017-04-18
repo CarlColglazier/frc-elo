@@ -50,15 +50,16 @@ pub fn get_event_matches(history: Arc<Mutex<HashMap<String, String>>>,
                          key: &str) -> Option<Vec<models::GameMatch>> {
     let url = format!("event/{}/matches/simple", key);
     let mut last_time = String::new();
+    let response;
     {
-        let history = history.lock()
+        let mut history = history.lock()
             .expect("Could not get history for match reading");
         match history.get(&url) {
             Some(date) => last_time.push_str(&date),
             None => {},
         };
     }
-    let response = request(&url, &last_time);
+    response = request(&url, &last_time);
     if response.code != 200 {
         return None;
     }
