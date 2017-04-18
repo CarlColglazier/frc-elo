@@ -4,9 +4,23 @@ This program is an Elo ranking system for FIRST Robotics.
 
 ## Purpose
 
-Prediction of future outcomes is important for the scouting
-process. Decisions often must be made based upon a predicted final
-ranking.
+Elo ratings are designed as an estimate of a player's skill. This
+project is mostly for fun. It is interesting to see how a team's
+competitive strength has changed over time. Elo ratings are also
+predictive to some extent, so this system could potentially be
+used to estimate the probabilities of future outcomes.
+
+## Introduction
+
+I have been interested in applying statistical models to FRC for
+several years. This program has its roots in a python program I wrote
+in 2014. This was not the first nor the best elo algorithm and many
+other elo systems can be found
+on
+[Chief Delphi](https://www.chiefdelphi.com/forums/search.php?searchid=8141035)
+
+The ranking system used here is based on the system described
+by Caleb Sykes of Team 4546.
 
 ## Installation
 
