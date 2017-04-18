@@ -184,7 +184,7 @@ fn get_matches() -> (Vec<Event>, Vec<Vec<Matche>>) {
     let event_list = events
         .filter(official.eq(1))
         .filter(event_type.lt(99))
-        .filter(start_date.gt("2008"))
+        //.filter(start_date.gt("2008"))
         .order(start_date)
         .load::<Event>(&conn).expect("Could not query events");
     let event_match_list = Matche::belonging_to(&event_list)
