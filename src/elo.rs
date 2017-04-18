@@ -1,10 +1,12 @@
 use super::models::Matche;
 use std::collections::HashMap;
+use probability::prelude::*;
+use probability::distribution::Gaussian;
 
 const START_SCORE: f64 = 0f64;
 const NEW_AVG: f64 = 150f64;
 const SCORE_STD: &'static [f64] = &[17.6, 50.9, 45.6, 24.6, 28.4, 46.2,
-    24.4, 21.0, 2.7, 28.4, 15.5, 31.1, 49.3, 33.2, 27.5, 74.0];
+    24.4, 21.0, 2.7, 28.4, 15.5, 31.1, 49.3, 33.2, 47.0, 95.0];
 
 pub struct Teams {
     pub table: HashMap<String, f64>,
@@ -67,8 +69,8 @@ impl Teams {
         } else {
             modifier = 3f64;
         }
-        let predicted_score_diff = (red - blue) * 0.004f64
-            * SCORE_STD[self.current_year - self.start_year];
+        let distribution = Gaussian::new(0.0, SCORE_STD[self.current_year - self.start_year]);
+        let predicted_score_diff = distribution.inverse(expected_r);
         let score_margin_adj = (m.score_margin() as f64 - predicted_score_diff)
             / SCORE_STD[self.current_year - self.start_year];
         //let score_change;

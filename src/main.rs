@@ -11,6 +11,7 @@ extern crate pbr;
 extern crate rand;
 #[macro_use] extern crate tera;
 extern crate chrono;
+extern crate probability;
 
 mod tba;
 mod schema;
@@ -29,7 +30,6 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::clone::Clone;
-//use pbr::ProgressBar;
 use schema::matches::dsl::*;
 use schema::events::dsl::*;
 use std::cmp::Ordering;
@@ -238,7 +238,7 @@ fn get_week_events(week_num: i32) -> Vec<Event> {
         .load::<Event>(&conn).expect("Events");
 }
 
-fn elo (k: f64, carry_over: f64) -> Teams {
+fn elo (k: f64, carry_over: f64, brier_ret: &mut f64) -> Teams {
     let mut team_list = Teams::new(k, carry_over,FIRST_YEAR as usize);
     let mut current_year = FIRST_YEAR;
     let (_, event_match_list) = get_matches();
@@ -254,18 +254,19 @@ fn elo (k: f64, carry_over: f64) -> Teams {
             team_list.process_match(&m);
         }
     }
-    /*
     let brier = team_list.brier / team_list.total as f64;
-    println!("Brier: {}", brier);
-    println!("BSS: {}", 1f64 - brier / 0.25f64);
-    println!("Predicted {} of {}, {}", team_list.wins_correct, team_list.total,
-    team_list.wins_correct as f64 / team_list.total as f64);*/
+    //println!("Brier: {}", brier);
+    //println!("BSS: {}", 1f64 - brier / 0.25f64);
+    //println!("Predicted {} of {}, {}", team_list.wins_correct, team_list.total,
+    //team_list.wins_correct as f64 / team_list.total as f64);
+    *brier_ret = brier;
     return team_list;
 }
 
 #[derive(Serialize, Clone)]
 struct EventTable {
     key: String,
+    name: String,
     entries: Vec<TableEntry>,
 }
 
@@ -273,6 +274,7 @@ impl EventTable {
     fn new() -> EventTable {
         EventTable {
             key: String::new(),
+            name: String::new(),
             entries: Vec::new(),
         }
     }
@@ -286,7 +288,8 @@ fn main() {
         setup();
     }
     if let Some(m) = cli_matches.subcommand_matches("elo") {
-        let mut team_list = elo(15f64, 0.8f64);
+        let mut brier = 0.0f64;
+        let mut team_list = elo(15f64, 0.8f64, &mut brier);
         let mut teams = Vec::new();
         for (key, val) in &team_list.table {
             teams.push(TableEntry {
@@ -295,15 +298,6 @@ fn main() {
             });
         }
         teams.sort_by(|x, y| y.rating.partial_cmp(&x.rating).unwrap());
-        /*
-        if m.is_present("csv") {
-        println!("CSV?");
-        /*
-        for t in teams {
-        println!("{},{:.3}", t.team, t.rating);
-    }*/
-        return;
-    } else*/
         if m.is_present("html") {
             let tera = compile_templates!("templates/**/*");
             let mut context = Context::new();
@@ -312,6 +306,7 @@ fn main() {
             for e in get_week_events(7) {
                 let mut event_entry = EventTable::new();
                 event_entry.key.push_str(&e.id);
+                event_entry.name.push_str(&e.name);
                 for team in tba::get_event_teams(&e.id).unwrap() {
                     event_entry.entries.push(TableEntry {
                         team: team.clone(),
@@ -327,6 +322,7 @@ fn main() {
             }
             context.add("events", &event_contexts);
             context.add("timestamp", &UTC::now().to_rfc2822());
+            context.add("brier", &brier);
             let rendered = tera.render("index.html", &context).unwrap();
             
             println!("{}", rendered);
