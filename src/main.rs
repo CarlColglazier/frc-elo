@@ -10,6 +10,7 @@ extern crate pbr;
 #[macro_use] extern crate clap;
 extern crate rand;
 #[macro_use] extern crate tera;
+extern crate chrono;
 
 mod tba;
 mod schema;
@@ -35,6 +36,8 @@ use std::cmp::Ordering;
 use clap::App;
 use rand::Rng;
 use tera::Context;
+use chrono::offset::utc::UTC;
+use chrono::datetime::DateTime;
 
 /// The first year for which data exists.
 /// This is used by the `sync` command as the first
@@ -323,6 +326,7 @@ fn main() {
                 }
             }
             context.add("events", &event_contexts);
+            context.add("timestamp", &UTC::now().to_rfc2822());
             let rendered = tera.render("index.html", &context).unwrap();
             
             println!("{}", rendered);
