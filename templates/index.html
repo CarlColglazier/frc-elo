@@ -31,6 +31,9 @@
          margin-bottom: 0.5em;
          font-size: 0.75em;
      }
+     header {
+         margin-bottom: 1em;
+     }
     </style>
     <link href=https://carlcolglazier.com/css/style.css rel=stylesheet>
   </head>
@@ -41,6 +44,10 @@
         <ul class="center inline-list"><li><a href=/notes>Notes</a><li><a href=/projects>Projects</a></ul>
       </navigation>
       <article class="content">
+        <header><h1 id="title">FRC Elo Ratings</h1>
+          <i>Wondering how these ratings were calculated? <a class="white" href=/projects/frc-elo/>Read here</a>.</i>
+        </header>
+        
         <input id="tab-all" type="radio" name="tabs" checked>
         <label for="tab-all" class="white">All</label>
         {% for event in events %}
@@ -73,6 +80,8 @@
       <p class="center white"><small>Updated {{timestamp}}</small></p>
       <p class="center white"><small>Brier score: {{brier}}*</small></p>
       <p class="center white"><small>* Note: ties are ignored for this score.</small></p>
+      <p class="center white"><small>Special thanks to <a class="white" href=calebsyk@gmail.com>Caleb Sykes</a> for
+          many of the optimizations used in this model.</small></p>
     </footer>
   </body>
 </html>
