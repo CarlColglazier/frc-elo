@@ -20,7 +20,7 @@ on
 [Chief Delphi](https://www.chiefdelphi.com/forums/search.php?searchid=8141035)
 
 The ranking system used here is based on the system described
-by Caleb Sykes of Team 4546.
+by Caleb Sykes of [Team 4536](http://www.minutebots.org/).
 
 ## Installation
 
