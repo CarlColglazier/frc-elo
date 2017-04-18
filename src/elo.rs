@@ -2,6 +2,7 @@ use super::models::Matche;
 use std::collections::HashMap;
 use probability::prelude::*;
 use probability::distribution::Gaussian;
+use super::CURRENT_YEAR;
 
 const START_SCORE: f64 = 0f64;
 const NEW_AVG: f64 = 150f64;
@@ -17,6 +18,7 @@ pub struct Teams {
     pub total: usize,
     start_year: usize,
     current_year: usize,
+    pub active_teams: [bool; 10000],
 }
 
 impl Teams {
@@ -30,6 +32,7 @@ impl Teams {
             total: 0,
             start_year: start_year,
             current_year: start_year,
+            active_teams: [false; 10000],
         }
     }
 
@@ -49,6 +52,9 @@ impl Teams {
         
         let mut entry = self.table.entry(team.to_owned()).or_insert(START_SCORE);
         *entry += change;
+        if self.current_year == CURRENT_YEAR as usize {
+            self.active_teams[team.replace("frc", "").parse::<usize>().unwrap()] = true;
+        }
     }
 
     pub fn process_match(&mut self, m: &Matche) {

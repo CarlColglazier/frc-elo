@@ -292,10 +292,12 @@ fn main() {
         let mut team_list = elo(15f64, 0.8f64, &mut brier);
         let mut teams = Vec::new();
         for (key, val) in &team_list.table {
-            teams.push(TableEntry {
-                team: key.to_owned(),
-                rating: val.to_owned(),
-            });
+            if team_list.active_teams[key.replace("frc","").parse::<usize>().unwrap()] {
+                teams.push(TableEntry {
+                    team: key.to_owned(),
+                    rating: val.to_owned(),
+                });
+            }
         }
         teams.sort_by(|x, y| y.rating.partial_cmp(&x.rating).unwrap());
         if m.is_present("html") {
