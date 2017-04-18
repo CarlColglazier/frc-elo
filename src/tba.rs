@@ -52,7 +52,7 @@ pub fn get_event_matches(history: Arc<Mutex<HashMap<String, String>>>,
     let mut last_time = String::new();
     let response;
     {
-        let mut history = history.lock()
+        let history = history.lock()
             .expect("Could not get history for match reading");
         match history.get(&url) {
             Some(date) => last_time.push_str(&date),
@@ -211,6 +211,23 @@ pub fn get_rankings(key: &str) -> Option<RankingResultJSON> {
     let data_str = str::from_utf8(&response.data)
         .expect("Could not load event rankings string");
     let _ : RankingResultJSON = match serde_json::from_str(&data_str) {
+        Ok(m) => return Some(m),
+        Err(e) => {
+            println!("Error: {}", e.description());
+            return None;
+        },
+    };
+}
+
+pub fn get_event_teams(key: &str) -> Option<Vec<String>> {
+    let url = format!("event/{}/teams/keys", key);
+    let response = request(&url, &String::new());
+    if response.code != 200 {
+        return None;
+    }
+    let data_str = str::from_utf8(&response.data)
+        .expect("Could not load event teams string");
+    let _ : Vec<String> = match serde_json::from_str(&data_str) {
         Ok(m) => return Some(m),
         Err(e) => {
             println!("Error: {}", e.description());

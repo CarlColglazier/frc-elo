@@ -38,7 +38,7 @@ impl Teams {
         self.current_year += 1;
     }
 
-    fn get(&mut self, team: &String) -> f64 {
+    pub fn get(&mut self, team: &String) -> f64 {
         let entry = self.table.entry(team.to_owned()).or_insert(START_SCORE);
         return *entry;
     }

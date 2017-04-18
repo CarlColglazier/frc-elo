@@ -13,20 +13,58 @@
          width: 50%;
          margin: 0 auto;
      }
+     section {
+         display: none;
+     }
+     {% for event in events %}
+     #tab-{{event.key}}:checked ~ #content-{{event.key}},
+     {% endfor %}
+     #tab-all:checked ~ #content-all {
+         display: block;
+     }
+     input {
+         display: none;
+     }
+     label {
+         padding: 0.5em;
+         display: inline-block;
+         margin-bottom: 0.5em;
+         font-size: 0.75em;
+     }
     </style>
     <link href=https://carlcolglazier.com/css/style.css rel=stylesheet>
   </head>
   <body>
     <div class="black main">
       <navigation><div class=logo><a href=/ >CC</a></div></navigation>
-    <article class="content">
-    <table><tbody>
-      <tr><th></th><th>Team</th><th>Rating</th></tr>
-        {% for entry in ratings %}
-        <tr><td>{{loop.index}}</td><td>{{entry.team}}</td><td>{{entry.rating | round(method="floor") }}</td></tr>
+      <article class="content">
+        <input id="tab-all" type="radio" name="tabs" checked>
+        <label for="tab-all" class="white">All</label>
+        {% for event in events %}
+        <input id="tab-{{event.key}}" type="radio" name="tabs">
+        <label for="tab-{{event.key}}" class="white">{{event.key}}</label>
         {% endfor %}
-    </tbody></table>
-    </article>
+        {% for event in events %}
+        <section id="content-{{event.key}}">
+          <h3>{{event.key}}</h3>
+          <table><tbody>
+            <tr><th></th><th>Team</th><th>Rating</th></tr>
+            {% for entry in event.entries %}
+            <tr><td>{{loop.index}}</td><td>{{entry.team}}</td><td>{{entry.rating | round(method="floor") }}</td></tr>
+            {% endfor %}
+          </tbody></table>
+        </section>
+        {% endfor %}
+        <section id="content-all">
+          <h3>All</h3>
+          <table><tbody>
+            <tr><th></th><th>Team</th><th>Rating</th></tr>
+            {% for entry in ratings %}
+            <tr><td>{{loop.index}}</td><td>{{entry.team}}</td><td>{{entry.rating | round(method="floor") }}</td></tr>
+            {% endfor %}
+          </tbody></table>
+        </section>
+      </article>
     </div>
   </body>
 </html>

@@ -122,7 +122,7 @@ fn setup() {
     let history = Arc::new(Mutex::new(open_history()));
     //let conn = db_connect();
     let conn = Arc::new(Mutex::new(db_connect()));
-    let mut request_data: RequestData = RequestData::new();
+    //let request_data: RequestData = RequestData::new();
     
     for i in 2002..NEXT_YEAR {
         let history = history.clone();
@@ -144,7 +144,7 @@ fn setup() {
                                 break;
                             }
                             if let Some(mut em) = tba::get_event_matches(history.clone(),
-                                                                     &event_list[index].key) {
+                                                                         &event_list[index].key) {
                                 result.events.push(event_list[index].clone());
                                 result.matches.append(&mut em);
                             }
@@ -180,6 +180,7 @@ fn get_matches() -> (Vec<Event>, Vec<Vec<Matche>>) {
     let conn = db_connect();
     let event_list = events
         .filter(official.eq(1))
+        .filter(event_type.lt(99))
         .filter(start_date.gt("2008"))
         .order(start_date)
         .load::<Event>(&conn).expect("Could not query events");
@@ -224,7 +225,17 @@ fn get_matches() -> (Vec<Event>, Vec<Vec<Matche>>) {
     return (event_list, final_list);
 }
 
-fn elo (k: f64, carry_over: f64) -> Vec<TableEntry> {
+fn get_week_events(week_num: i32) -> Vec<Event> {
+    let conn = db_connect();
+    return events
+        .filter(official.eq(1))
+        .filter(event_type.lt(99))
+        .filter(start_date.gt(&format!("{}", CURRENT_YEAR)))
+        .filter(week.eq(week_num))
+        .load::<Event>(&conn).expect("Events");
+}
+
+fn elo (k: f64, carry_over: f64) -> Teams {
     let mut team_list = Teams::new(k, carry_over,FIRST_YEAR as usize);
     let mut current_year = FIRST_YEAR;
     let (_, event_match_list) = get_matches();
@@ -245,16 +256,23 @@ fn elo (k: f64, carry_over: f64) -> Vec<TableEntry> {
     println!("Brier: {}", brier);
     println!("BSS: {}", 1f64 - brier / 0.25f64);
     println!("Predicted {} of {}, {}", team_list.wins_correct, team_list.total,
-             team_list.wins_correct as f64 / team_list.total as f64);*/
-    let mut teams = Vec::new();
-    for (key, val) in team_list.table {
-        teams.push(TableEntry {
-            team: key,
-            rating: val,
-        });
+    team_list.wins_correct as f64 / team_list.total as f64);*/
+    return team_list;
+}
+
+#[derive(Serialize, Clone)]
+struct EventTable {
+    key: String,
+    entries: Vec<TableEntry>,
+}
+
+impl EventTable {
+    fn new() -> EventTable {
+        EventTable {
+            key: String::new(),
+            entries: Vec::new(),
+        }
     }
-    teams.sort_by(|x, y| y.rating.partial_cmp(&x.rating).unwrap());
-    return teams;
 }
 
 fn main() {
@@ -265,25 +283,48 @@ fn main() {
         setup();
     }
     if let Some(m) = cli_matches.subcommand_matches("elo") {
-        let teams = elo(15f64, 0.8f64);
+        let mut team_list = elo(15f64, 0.8f64);
+        let mut teams = Vec::new();
+        for (key, val) in &team_list.table {
+            teams.push(TableEntry {
+                team: key.to_owned(),
+                rating: val.to_owned(),
+            });
+        }
+        teams.sort_by(|x, y| y.rating.partial_cmp(&x.rating).unwrap());
         /*
         if m.is_present("csv") {
-            println!("CSV?");
-            /*
-            for t in teams {
-                println!("{},{:.3}", t.team, t.rating);
-            }*/
-            return;
+        println!("CSV?");
+        /*
+        for t in teams {
+        println!("{},{:.3}", t.team, t.rating);
+    }*/
+        return;
     } else*/
         if m.is_present("html") {
-            let mut r = Vec::new();
-            for i in 0..1000 {
-                r.push(teams[i].clone());
-            }
-            let mut tera = compile_templates!("templates/**/*");
+            let tera = compile_templates!("templates/**/*");
             let mut context = Context::new();
-            context.add("ratings", &r);
+            context.add("ratings", &teams);
+            let mut event_contexts = Vec::new();
+            for e in get_week_events(7) {
+                let mut event_entry = EventTable::new();
+                event_entry.key.push_str(&e.id);
+                for team in tba::get_event_teams(&e.id).unwrap() {
+                    event_entry.entries.push(TableEntry {
+                        team: team.clone(),
+                        rating: team_list.get(&team),
+                    });
+                    //let rating = teams.
+                    //println!("{} {}", &team, team_list.get(&team));
+                }
+                event_entry.entries.sort_by(|x, y| y.rating.partial_cmp(&x.rating).unwrap());
+                if event_entry.entries.len() > 0 {
+                    event_contexts.push(event_entry);
+                }
+            }
+            context.add("events", &event_contexts);
             let rendered = tera.render("index.html", &context).unwrap();
+            
             println!("{}", rendered);
             return;
         } else {
