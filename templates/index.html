@@ -1,0 +1,32 @@
+<html>
+  <head>
+    <title>FRC Elo</title>
+    <style>
+     tr {
+         text-align: center;
+     }
+     td {
+         border-bottom: 1px solid black;
+         padding: 1em;
+     }
+     table {
+         width: 50%;
+         margin: 0 auto;
+     }
+    </style>
+    <link href=https://carlcolglazier.com/css/style.css rel=stylesheet>
+  </head>
+  <body>
+    <div class="black main">
+      <navigation><div class=logo><a href=/ >CC</a></div></navigation>
+    <article class="content">
+    <table><tbody>
+      <tr><th></th><th>Team</th><th>Rating</th></tr>
+        {% for entry in ratings %}
+        <tr><td>{{loop.index}}</td><td>{{entry.team}}</td><td>{{entry.rating | round(method="floor") }}</td></tr>
+        {% endfor %}
+    </tbody></table>
+    </article>
+    </div>
+  </body>
+</html>
