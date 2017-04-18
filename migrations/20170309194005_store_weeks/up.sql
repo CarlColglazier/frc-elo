@@ -1,0 +1,2 @@
+ALTER TABLE events
+      ADD   week INTEGER NOT NULL DEFAULT 8;
