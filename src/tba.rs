@@ -143,6 +143,7 @@ impl WinLossRecord {
 pub struct TeamEventRanking {
     pub matches_played: usize,
     extra_stats: Vec<usize>,
+    pub sort_orders: Vec<f64>,
     record: WinLossRecord,
     team_key: String,
 }
@@ -157,6 +158,7 @@ impl TeamEventRanking {
         let mut new = TeamEventRanking {
             matches_played: 0,
             extra_stats: Vec::new(),
+            sort_orders: Vec::new(),
             record: WinLossRecord::new(),
             team_key: String::from(key),
         };
@@ -189,6 +191,12 @@ impl TeamEventRanking {
     pub fn add_loss(&mut self) {
         self.record.losses += 1;
         self.matches_played += 1;
+    }
+
+    pub fn add_draw(&mut self) {
+        self.record.ties += 1;
+        self.matches_played += 1;
+        self.extra_stats[0] += 1;
     }
 
     pub fn add_extra(&mut self) {

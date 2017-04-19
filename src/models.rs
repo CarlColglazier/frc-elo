@@ -71,7 +71,7 @@ pub struct GameMatch {
     pub alliances: Alliances,
 }
 
-#[derive(Debug, Queryable, Identifiable, Associations)]
+#[derive(Debug, Queryable, Identifiable, Associations, Clone)]
 #[belongs_to(Event)]
 pub struct Matche {
     pub id: String,

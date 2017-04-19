@@ -58,10 +58,26 @@
         <section id="content-{{event.key}}">
           <h3>{{event.name}}</h3>
           <table><tbody>
-            <tr><th></th><th>Team</th><th>Rating</th></tr>
-            {% for entry in event.entries %}
-            <tr><td>{{loop.index}}</td><td>{{entry.team}}</td><td>{{entry.rating | round(method="floor") }}</td></tr>
-            {% endfor %}
+
+              {% if event.sim %}
+              <tr><th></th><th>Team</th><th>Rating</th><th>Avg. RP</th>
+                <th>Avg. Rank</th><th>#1</th><th>#8</th></tr>
+              {% else %}
+              <tr><th></th><th>Team</th><th>Rating</th></tr>
+              {% endif %}
+              {% for entry in event.entries %}
+              {% if event.sim %}
+              <tr><td>{{loop.index}}</td><td>{{entry.team}}</td>
+                <td>{{entry.rating | round(method="floor") }}</td>
+                <td>{{entry.sim.avg | round(precision=2)}}</td>
+                <td>{{entry.sim.rank | round(precison=2)}}</td>
+                <td>{{entry.sim.tops}}</td><td>{{entry.sim.caps}}</td></tr>
+              {% else %}
+              <tr><td>{{loop.index}}</td><td>{{entry.team}}</td>
+                <td>{{entry.rating | round(method="floor") }}</td>
+              </tr>
+              {% endif %}
+              {% endfor %}
           </tbody></table>
         </section>
         {% endfor %}

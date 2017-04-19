@@ -10,6 +10,9 @@ subcommands:
         args:
             - html:
                  help: Generate HTML pages.
+            - week:
+                 value_name: WEEK
+                 takes_value: true
 #    - glicko:
 #        about: Calculate Glicko Ratings
 #        args:
@@ -30,12 +33,12 @@ subcommands:
 #            - blue:
 #                help: blue alliance members
 #                required: true
-#    - estimate:
-#        about: Estimate most likely future rankings.
-#        args:
-#            - event:
-#                help: events key
-#                required: true
+    - sim:
+        about: Estimate most likely future rankings.
+        args:
+            - event:
+                help: events key
+                required: true
 #    - prob:
 #        about: Estimate winning probabilities for remaining matches.
 #        args:

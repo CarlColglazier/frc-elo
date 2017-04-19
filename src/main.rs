@@ -37,7 +37,6 @@ use clap::App;
 use rand::Rng;
 use tera::Context;
 use chrono::offset::utc::UTC;
-use chrono::datetime::DateTime;
 
 /// The first year for which data exists.
 /// This is used by the `sync` command as the first
@@ -82,6 +81,7 @@ struct HistoryRecord {
 struct TableEntry {
     team: String,
     rating: f64,
+    sim: Option<SimulatedResult>,
 }
 
 /// Get the hash map containing the URLs and time strings.
@@ -123,10 +123,7 @@ fn db_connect() -> SqliteConnection {
 fn setup() {
     let mut threads = Vec::new();
     let history = Arc::new(Mutex::new(open_history()));
-    //let conn = db_connect();
     let conn = Arc::new(Mutex::new(db_connect()));
-    //let request_data: RequestData = RequestData::new();
-    
     for i in 2002..NEXT_YEAR {
         let history = history.clone();
         let conn = conn.clone();
@@ -184,7 +181,7 @@ fn get_matches() -> (Vec<Event>, Vec<Vec<Matche>>) {
     let event_list = events
         .filter(official.eq(1))
         .filter(event_type.lt(99))
-        //.filter(start_date.gt("2008"))
+    //.filter(start_date.gt("2008"))
         .order(start_date)
         .load::<Event>(&conn).expect("Could not query events");
     let event_match_list = Matche::belonging_to(&event_list)
@@ -267,6 +264,7 @@ fn elo (k: f64, carry_over: f64, brier_ret: &mut f64) -> Teams {
 struct EventTable {
     key: String,
     name: String,
+    sim: bool,
     entries: Vec<TableEntry>,
 }
 
@@ -275,6 +273,7 @@ impl EventTable {
         EventTable {
             key: String::new(),
             name: String::new(),
+            sim: false,
             entries: Vec::new(),
         }
     }
@@ -296,6 +295,7 @@ fn main() {
                 teams.push(TableEntry {
                     team: key.to_owned(),
                     rating: val.to_owned(),
+                    sim: None,
                 });
             }
         }
@@ -305,19 +305,34 @@ fn main() {
             let mut context = Context::new();
             context.add("ratings", &teams);
             let mut event_contexts = Vec::new();
-            for e in get_week_events(7) {
+            //let mut event_sims = Vec::new();
+            let week_num: i32 = match m.value_of("week") {
+                Some(y) => y.parse().unwrap_or(0),
+                None => 0,
+            };
+            for e in get_week_events(week_num) {
                 let mut event_entry = EventTable::new();
                 event_entry.key.push_str(&e.id);
                 event_entry.name.push_str(&e.name);
-                for team in tba::get_event_teams(&e.id).unwrap() {
-                    event_entry.entries.push(TableEntry {
-                        team: team.clone(),
-                        rating: team_list.get(&team),
-                    });
-                    //let rating = teams.
-                    //println!("{} {}", &team, team_list.get(&team));
+                if let Some(ref sim) = simulate(&e.id) {
+                    event_entry.sim = true;
+                    for entry in sim {
+                        event_entry.entries.push(TableEntry {
+                            team: entry.key.clone(),
+                            rating: entry.elo,
+                            sim: Some(entry.clone()),
+                        });
+                    }
+                } else {
+                    for team in tba::get_event_teams(&e.id).unwrap() {
+                        event_entry.entries.push(TableEntry {
+                            team: team.clone(),
+                            rating: team_list.get(&team),
+                            sim: None,
+                        });
+                    }
+                    event_entry.entries.sort_by(|x, y| y.rating.partial_cmp(&x.rating).unwrap());
                 }
-                event_entry.entries.sort_by(|x, y| y.rating.partial_cmp(&x.rating).unwrap());
                 if event_entry.entries.len() > 0 {
                     event_contexts.push(event_entry);
                 }
@@ -326,7 +341,6 @@ fn main() {
             context.add("timestamp", &UTC::now().to_rfc2822());
             context.add("brier", &brier);
             let rendered = tera.render("index.html", &context).unwrap();
-            
             println!("{}", rendered);
             return;
         } else {
@@ -337,4 +351,175 @@ fn main() {
             }
         }
     }
+    if let Some(m) = cli_matches.subcommand_matches("sim") {
+        let event_key = m.value_of("event").expect("Event key");
+        let teams = match simulate(event_key) {
+            Some(t) => t,
+            None => {
+                println!("Schedule not posted yet.");
+                return;
+            },
+        };
+        for t in teams {
+            println!("{:8} {:>6.1} {:>5.2} {:>5.2} {:<6} {:<6}", t.key, t.elo,
+                     t.avg,
+                     t.rank, t.tops, t.caps);
+        }
+    }
+}
+
+#[derive(Serialize, Clone)]
+struct SimulatedResult {
+    key: String,
+    elo: f64,
+    avg: f64,
+    rank: f64,
+    tops: f64,
+    caps: f64,
+}
+
+fn simulate(event_key: &str) -> Option<Vec<SimulatedResult>> {
+    let mut brier = 0.0f64;
+    let mut team_list = elo(15f64, 0.8f64, &mut brier);
+    let conn = db_connect();
+    let match_list = matches
+        .filter(event_id.eq(event_key))
+        .filter(comp_level.eq("qm"))
+        .load::<Matche>(&conn)
+        .expect("matches");
+    if match_list.len() == 0 {
+        return None;
+    }
+    let mut full_rankings: HashMap<String, (usize, usize, usize, usize)> = HashMap::new();
+    let mut rankings: HashMap<String, TeamEventRanking> = HashMap::new();
+    if let Some(ranking_json) = tba::get_rankings(event_key) {
+        let rank_entries = ranking_json.rankings;
+        for entry in rank_entries {
+            rankings.insert(entry.key(), entry);
+        }
+    }
+    for _ in 0..EST_RUNS {
+        let mut rankings = rankings.clone();
+        let mut team_list = team_list.clone();
+        for m in &match_list {
+            let mut rng = rand::thread_rng();
+            if m.blue_score != -1 && m.red_score != -1 {
+                if rankings.len() > 0 {
+                    continue;
+                }
+                // Completed
+                for team in &m.get_red() {
+                    let ranking  = rankings.entry(team.to_owned())
+                        .or_insert(TeamEventRanking::new(team));
+                    if m.actual_r() > 0.9999 {
+                        ranking.add_win();
+                    } else if m.actual_r() < 0.49999 {
+                        ranking.add_loss();
+                    } else {
+                        ranking.add_draw();
+                    }
+                }
+                for team in &m.get_blue() {
+                    let ranking = rankings.entry(team.to_owned())
+                        .or_insert(TeamEventRanking::new(team));
+                    if m.actual_b() > 0.999 {
+                        ranking.add_win();
+                    } else if m.actual_b() < 0.49999 {
+                        ranking.add_loss();
+                    } else {
+                        ranking.add_draw();
+                    }
+                }
+            } else {
+                // simulate this.
+                let result = team_list.simulate(m);
+                let extra_prob = rng.gen::<f64>();
+                let mut red_extra_prob = 1f64;
+                let mut blue_extra_prob = 1f64;
+                for team in &m.get_red() {
+                    let ranking = rankings.entry(team.to_owned())
+                        .or_insert(TeamEventRanking::new(team));
+                    if result {
+                        ranking.add_win();
+                    } else {
+                        ranking.add_loss();
+                    }
+                    if ranking.matches_played > 3 {
+                        red_extra_prob *= 1f64 - ranking.extra_prob()
+                            * (ranking.matches_played as f64 / 4f64);
+                    }
+                }
+                for team in &m.get_blue() {
+                    let ranking = rankings.entry(team.to_owned())
+                        .or_insert(TeamEventRanking::new(team));
+                    if !result {
+                        ranking.add_win();
+                    } else {
+                        ranking.add_loss();
+                    }
+                    if ranking.matches_played > 3 {
+                        blue_extra_prob *= 1f64 - ranking.extra_prob();
+                    } else {
+                        blue_extra_prob *= 1f64 - ranking.extra_prob()
+                            * (ranking.matches_played as f64 / 4f64);
+                    }
+                }
+                if extra_prob > red_extra_prob {
+                    for team in &m.get_red() {
+                        let ranking = rankings.entry(team.to_owned())
+                            .or_insert(TeamEventRanking::new(team));
+                        ranking.add_extra();
+                    }
+                }
+                let extra_prob = rng.gen::<f64>();
+                if extra_prob > blue_extra_prob {
+                    for team in &m.get_blue() {
+                        let ranking = rankings.entry(team.to_owned())
+                            .or_insert(TeamEventRanking::new(team));
+                        ranking.add_extra();
+                    }
+                }
+            }
+        }
+        let mut teams = Vec::new();
+        for (team, val) in rankings.iter_mut() {
+            teams.push((team, val.to_usize(), val.sort_orders[1]));
+        }
+        //teams.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
+        teams.sort_by(|x, y| match y.1.partial_cmp(&x.1) {
+            Some(Ordering::Less) => Ordering::Less,
+            Some(Ordering::Greater) => Ordering::Greater,
+            _ => y.2.partial_cmp(&x.2).unwrap(),
+        });
+        for i in 0..teams.len() {
+            let (team, ref val, _) = teams[i];
+            let entry = full_rankings.entry(team.to_owned()).or_insert((0,0,0,0));
+            entry.0 += *val;
+            entry.1 += i + 1;
+            if i == 0 {
+                entry.2 += 1;
+            }
+            if i < 8 {
+                entry.3 += 1;
+            }
+        }
+    }
+    let mut teams = Vec::new();
+    for (team, val) in full_rankings {
+        teams.push(SimulatedResult {
+            key: team.clone(),
+            elo: (&mut team_list).get(&team),
+            avg: val.0 as f64 / EST_RUNS as f64,
+            rank: val.1 as f64 / EST_RUNS as f64,
+            tops: val.2 as f64 * 100f64 / EST_RUNS as f64,
+            caps: val.3 as f64 * 100f64 / EST_RUNS as f64,
+        });
+        //teams.push((team, val.0, val.1, val.2, val.3));
+    }
+    teams.sort_by(|x, y| match y.avg.partial_cmp(&x.avg) {
+        Some(Ordering::Less) => Ordering::Less,
+        Some(Ordering::Greater) => Ordering::Greater,
+        _ => x.rank.partial_cmp(&y.rank).unwrap(),
+    });
+    return Some(teams);
 }
