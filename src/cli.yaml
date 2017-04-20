@@ -39,9 +39,9 @@ subcommands:
             - event:
                 help: events key
                 required: true
-#    - prob:
-#        about: Estimate winning probabilities for remaining matches.
-#        args:
-#            - event:
-#                help: event key
-#                required: true
+    - prob:
+        about: Estimate winning probabilities for remaining matches.
+        args:
+            - event:
+                help: event key
+                required: true

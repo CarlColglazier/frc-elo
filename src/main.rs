@@ -366,6 +366,30 @@ fn main() {
                      t.rank, t.tops, t.caps);
         }
     }
+    if let Some(m) = cli_matches.subcommand_matches("prob") {
+        let event_key = m.value_of("event").expect("Event key");
+        let conn = db_connect();
+        let match_list = matches
+            .filter(event_id.eq(event_key))
+            .filter(red_score.eq(-1))
+            .filter(blue_score.eq(-1))
+            .order(match_number)
+            .load::<Matche>(&conn)
+            .expect("matches");
+        let mut brier = 0.0f64;
+        let mut team_list = elo(15f64, 0.8f64, &mut brier);
+        for m in &match_list {
+            let red = team_list.sum_elo(m, true);
+            let blue = team_list.sum_elo(m, false);
+            let p = team_list.predict(m);
+            let diff = team_list.predict_diff(p);
+            let red_teams = m.get_red().join(" ");
+            let blue_teams = m.get_blue().join(" ");
+            println!("{}{:<2} [{:.0}]({:.2}) {:<23} <{:^3.0}> {:<23} ({:.2})[{:.0}]",
+                     m.comp_level, m.match_number, red, p, red_teams, diff,
+                     blue_teams, 1f64 - p, blue);
+        }
+    }
 }
 
 #[derive(Serialize, Clone)]

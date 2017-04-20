@@ -50,7 +50,6 @@ impl Teams {
     }
 
     pub fn update(&mut self, team: &String, change: f64) {
-        
         let mut entry = self.table.entry(team.to_owned()).or_insert(START_SCORE);
         *entry += change;
         if self.current_year == CURRENT_YEAR as usize {
@@ -58,20 +57,30 @@ impl Teams {
         }
     }
 
-    fn predict(&mut self, m: &Matche) -> f64 {
+    pub fn sum_elo(&mut self, m: &Matche, red: bool) -> f64 {
+        let mut score;
+        if red {
+            score = self.get(&m.red1) + self.get(&m.red2);
+            if let Some(ref t) = m.red3 {
+                score += self.get(t);
+            }
+        } else {
+            score = self.get(&m.blue1) + self.get(&m.blue2);
+            if let Some(ref t) = m.blue3 {
+                score += self.get(t);
+            }
+        }
+        return score;
+    }
+
+    pub fn predict(&mut self, m: &Matche) -> f64 {
         let m = m.clone();
-        let mut red = self.get(&m.red1) + self.get(&m.red2); //+ self.get(m.red3);
-        if let Some(ref r) =  m.red3 {
-            red += self.get(r);
-        }
-        let mut blue = self.get(&m.blue1) + self.get(&m.blue2);// + self.get(m.blue3);
-        if let Some(ref r) = m.blue3 {
-            blue += self.get(r);
-        }
+        let red = self.sum_elo(&m, true);
+        let blue = self.sum_elo(&m, false);
         return 1f64 / (1f64 + 10f64.powf((blue - red) / 400f64));
     }
 
-    fn predict_diff(&self, expected: f64) -> f64 {
+    pub fn predict_diff(&self, expected: f64) -> f64 {
         let distribution = Gaussian::new(0.0, SCORE_STD[self.current_year - self.start_year]);
         return distribution.inverse(expected);
     }
