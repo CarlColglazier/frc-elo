@@ -483,7 +483,7 @@ fn simulate(event_key: &str) -> Option<Vec<SimulatedResult>> {
         }
         let mut teams = Vec::new();
         for (team, val) in rankings.iter_mut() {
-            teams.push((team, val.to_usize(), val.sort_orders[1]));
+            teams.push((team, val.to_usize(), val.sort_orders.get(1).unwrap_or(&0.0f64).to_owned()));
         }
         //teams.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
         teams.sort_by(|x, y| match y.1.partial_cmp(&x.1) {
